@@ -418,31 +418,41 @@
       <div class="panel-body">
         <div>
           <label>Selected Skill</label>
-          <input type="text" id="selectedSkill" value="debug-java-null-pointer" readonly
+          <input type="text" id="selectedSkill" value="analyze-python-error" readonly
                  style="cursor:default; color:var(--accent2);" />
         </div>
 
         <div class="input-row">
           <div>
             <label>Stacktrace</label>
-            <textarea id="inputStacktrace" rows="5">Exception in thread "main" java.lang.NullPointerException
-	at com.example.service.UserService.getUsername(UserService.java:42)
-	at com.example.controller.UserController.profile(UserController.java:28)
-	at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
-	at org.springframework.web.servlet.FrameworkServlet.service(FrameworkServlet.java:897)</textarea>
+            <textarea id="inputStacktrace" rows="5">Traceback (most recent call last):
+  File "test_data/buggy_code.py", line 40, in main
+    controller.handle_order(order_id=42)
+  File "test_data/buggy_code.py", line 35, in handle_order
+    self.user_service.process_user()
+  File "test_data/buggy_code.py", line 25, in process_user
+    username = self.get_username()
+  File "test_data/buggy_code.py", line 19, in get_username
+    return self.current_user.name
+AttributeError: 'NoneType' object has no attribute 'name'</textarea>
           </div>
           <div>
             <label>Source Path</label>
-            <input type="text" id="inputSourcePath" value="./src/main/java" style="margin-bottom:8px;" />
+            <input type="text" id="inputSourcePath" value="test_data/" style="margin-bottom:8px;" />
             <label>Additional JSON input (optional)</label>
             <textarea id="inputExtra" rows="3" placeholder='{"key": "value"}'></textarea>
           </div>
         </div>
 
-        <button class="run-btn" id="runBtn" onclick="runSkill()">
-          <div class="spinner"></div>
-          <span class="btn-text">▶ Run Skill</span>
-        </button>
+        <div style="display:flex; gap:8px;">
+          <button class="run-btn" id="injectBtn" onclick="injectStacktrace()" style="flex:0;">
+            <span class="btn-text">📥 Inject Stacktrace</span>
+          </button>
+          <button class="run-btn" id="runBtn" onclick="runSkill()">
+            <div class="spinner"></div>
+            <span class="btn-text">▶ Run Skill</span>
+          </button>
+        </div>
       </div>
     </div>
 
@@ -597,6 +607,31 @@ async function doSearch(query) {
     const scores = Object.fromEntries(results.map(r => [r.skill.name, r.score]));
     renderSkillList(skills, scores);
   } catch(e) {}
+}
+
+// ─── Inject Stacktrace ────────────────────────────────────────────────────────
+async function injectStacktrace() {
+  const injectBtn = document.getElementById('injectBtn');
+  const originalText = injectBtn.innerHTML;
+  injectBtn.disabled = true;
+  injectBtn.innerHTML = '<span class="btn-text">⏳ Running test…</span>';
+  
+  try {
+    const res = await fetch(`${API}/api/run-test-code`);
+    if (!res.ok) {
+      alert('Failed to run test code');
+      return;
+    }
+    const data = await res.json();
+    document.getElementById('inputStacktrace').value = data.stacktrace;
+    document.getElementById('inputSourcePath').value = data.source_path;
+    alert('✅ Stacktrace injected from test_data/buggy_code.py');
+  } catch(e) {
+    alert('Error: ' + e.message);
+  } finally {
+    injectBtn.disabled = false;
+    injectBtn.innerHTML = originalText;
+  }
 }
 
 // ─── Execute ──────────────────────────────────────────────────────────────────
