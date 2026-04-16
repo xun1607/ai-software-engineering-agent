@@ -36,26 +36,58 @@ class SkillConstraints:
 
 
 @dataclass
+class TestCase:
+    """A single test case for a skill (Layer 5 — Skill Evaluation)."""
+    id: str
+    name: str
+    input: Dict[str, Any]
+    expected_output: Dict[str, Any]
+    acceptance: List[str]          # Python expressions: "output.file == expected.file"
+    tags: List[str] = field(default_factory=list)
+
+
+@dataclass
 class Skill:
+    # ── Layer 1: Specification ───────────────────────────────────────────────
     name: str
     description: str
     version: str = "1.0.0"
     category: str = "General"
     level: Literal["atomic", "composite"] = "atomic"
     tags: List[str] = field(default_factory=list)
+    goal: str = ""                             # [NEW] Specific goal of this skill
     input: Dict[str, Any] = field(default_factory=dict)
     output: Dict[str, Any] = field(default_factory=dict)
     constraints: SkillConstraints = field(default_factory=SkillConstraints)
-    sub_skills: List[str] = field(default_factory=list)
+    acceptance_criteria: List[str] = field(default_factory=list)   # [NEW]
+    metrics: Dict[str, Any] = field(default_factory=dict)          # [NEW] targets per metric
+
+    # ── Layer 2: Design ──────────────────────────────────────────────────────
+    reasoning_strategy: str = "chain-of-thought"   # [NEW] chain-of-thought|react|reflexion|direct
+    fallback_strategy: str = ""                    # [NEW]
+    examples: List[Dict] = field(default_factory=list)  # [NEW] few-shot examples
     instructions: str = ""
+
+    # ── Layer 3: Connecting ──────────────────────────────────────────────────
+    tools: List[Dict] = field(default_factory=list)           # [NEW]
+    context_schema: List[Dict] = field(default_factory=list)  # [NEW]
+    memory_interface: Dict[str, List] = field(default_factory=dict)  # [NEW]
+
+    # ── Composite ────────────────────────────────────────────────────────────
+    sub_skills: List[str] = field(default_factory=list)
+
+    # ── Layer 5: Evaluation ──────────────────────────────────────────────────
+    test_cases: List[TestCase] = field(default_factory=list)   # [NEW]
+
+    # ── Internal ─────────────────────────────────────────────────────────────
     skill_dir: Optional[Path] = None
 
+    # ─────────────────────────────────────────────────────────────────────────
     @classmethod
     def from_md_file(cls, skill_md_path: Path) -> "Skill":
         """Parse a SKILL.md file into a Skill object."""
         content = skill_md_path.read_text(encoding="utf-8")
 
-        # Split frontmatter from body
         match = re.match(r"^---\s*\n(.*?)\n---\s*\n?(.*)", content, re.DOTALL)
         if not match:
             raise ValueError(
@@ -65,7 +97,7 @@ class Skill:
         body = match.group(2).strip()
         meta = yaml.safe_load(yaml_str)
 
-        # Parse constraints block
+        # ── Constraints ──────────────────────────────────────────────────────
         raw_c = meta.get("constraints", {})
         host_d = raw_c.get("host", {})
         res_d = raw_c.get("resources", {})
@@ -90,13 +122,28 @@ class Skill:
             ),
         )
 
-        # Extract ## Instructions section from body
+        # ── Instructions (from body) ──────────────────────────────────────────
         inst_match = re.search(
             r"##\s+(?:🚀\s+)?Instructions?\s*\n(.*?)(?=\n##\s|\Z)",
-            body,
-            re.DOTALL | re.IGNORECASE,
+            body, re.DOTALL | re.IGNORECASE,
         )
         instructions = inst_match.group(1).strip() if inst_match else body
+
+        # ── Test Cases ────────────────────────────────────────────────────────
+        raw_tcs = meta.get("test_cases", [])
+        test_cases = []
+        for tc in (raw_tcs or []):
+            test_cases.append(TestCase(
+                id=tc.get("id", "TC-???"),
+                name=tc.get("name", ""),
+                input=tc.get("input", {}),
+                expected_output=tc.get("expected_output", {}),
+                acceptance=tc.get("acceptance", []),
+                tags=tc.get("tags", []),
+            ))
+
+        # ── Examples ──────────────────────────────────────────────────────────
+        raw_examples = meta.get("examples", [])
 
         return cls(
             name=meta["name"],
@@ -105,11 +152,21 @@ class Skill:
             category=meta.get("category", "General"),
             level=meta.get("level", "atomic"),
             tags=meta.get("tags", []),
+            goal=meta.get("goal", ""),
             input=meta.get("input", {}),
             output=meta.get("output", {}),
             constraints=constraints,
-            sub_skills=meta.get("sub_skills", []),
+            acceptance_criteria=meta.get("acceptance_criteria", []),
+            metrics=meta.get("metrics", {}),
+            reasoning_strategy=meta.get("reasoning_strategy", "chain-of-thought"),
+            fallback_strategy=meta.get("fallback_strategy", ""),
+            examples=raw_examples or [],
             instructions=instructions,
+            tools=meta.get("tools", []),
+            context_schema=meta.get("context_schema", []),
+            memory_interface=meta.get("memory_interface", {}),
+            sub_skills=meta.get("sub_skills", []),
+            test_cases=test_cases,
             skill_dir=skill_md_path.parent,
         )
 
@@ -122,7 +179,12 @@ class Skill:
             "category": self.category,
             "level": self.level,
             "tags": self.tags,
+            "goal": self.goal,
             "input": self.input,
             "output": self.output,
             "sub_skills": self.sub_skills,
+            "acceptance_criteria": self.acceptance_criteria,
+            "metrics": self.metrics,
+            "reasoning_strategy": self.reasoning_strategy,
+            "test_cases_count": len(self.test_cases),
         }

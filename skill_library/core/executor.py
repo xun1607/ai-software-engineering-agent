@@ -5,12 +5,14 @@ SkillExecutor — orchestrates the full skill execution lifecycle:
   3. Dispatch:  atomic  → call LLM and parse output
                composite → recursively execute sub-skills (+ cycle detection)
   4. Emit structured LogEvents at every step so consumers (CLI / UI) can track progress.
+  5. Collect ExecutionTelemetry (token_usage, latency_ms, retry_count) per run.
 """
 import json
 import os
+import re
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from ..models.skill import Skill
 from .registry import SkillRegistry
@@ -24,9 +26,9 @@ from .constraint import ConstraintChecker
 @dataclass
 class LogEvent:
     """A single execution log entry emitted during skill execution."""
-    step: str          # "identify_skill" | "validate_input" | "check_constraint" |
-                       # "call_llm" | "parse_output" | "compose" | "safety_approval"
-    status: str        # "start" | "success" | "error" | "info"
+    step: str          # "identify_skill"|"validate_input"|"check_constraint"|
+                       # "call_llm"|"parse_output"|"compose"|"safety_approval"
+    status: str        # "start"|"success"|"error"|"info"
     message: str
     data: Optional[Dict[str, Any]] = None
     skill_name: str = ""
@@ -57,6 +59,20 @@ class CyclicSkillError(ExecutionError):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Telemetry  (Layer 4 — Monitor)
+# ─────────────────────────────────────────────────────────────────────────────
+@dataclass
+class ExecutionTelemetry:
+    """Runtime metrics collected during a single top-level skill execution."""
+    skill_name: str
+    latency_ms: float = 0.0
+    token_usage: Dict[str, int] = field(
+        default_factory=lambda: {"prompt": 0, "completion": 0, "total": 0}
+    )
+    retry_count: int = 0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Executor
 # ─────────────────────────────────────────────────────────────────────────────
 class SkillExecutor:
@@ -75,13 +91,19 @@ class SkillExecutor:
         self.log_callback: Callable[[LogEvent], None] = log_callback or (lambda _: None)
         self._validator = InputValidator()
         self._constraint_checker = ConstraintChecker()
+        self._last_telemetry: Optional[ExecutionTelemetry] = None
 
         if not mock_mode:
-            from openai import OpenAI  # lazy import so mock mode needs no key
+            from openai import OpenAI
             key = api_key or os.environ.get("DEEPSEEK_API_KEY", "")
             self._llm = OpenAI(api_key=key, base_url=self.DEEPSEEK_BASE_URL)
         else:
             self._llm = None
+
+    @property
+    def last_telemetry(self) -> Optional[ExecutionTelemetry]:
+        """Telemetry from the most recent top-level run() call."""
+        return self._last_telemetry
 
     # ── Public entry point ───────────────────────────────────────────────────
     def run(
@@ -89,13 +111,18 @@ class SkillExecutor:
         skill: Skill,
         input_data: dict,
         _call_stack: Optional[Set[str]] = None,
+        _telem: Optional[ExecutionTelemetry] = None,
     ) -> Dict[str, Any]:
         """
         Execute a skill end-to-end and return the structured output.
-        `_call_stack` is used internally for cycle detection in composite skills.
+        _call_stack: cycle detection (internal).
+        _telem: accumulated telemetry threaded through nested calls.
         """
         if _call_stack is None:
+            # Top-level call — create fresh telemetry
             _call_stack = set()
+            _telem = ExecutionTelemetry(skill_name=skill.name)
+            self._last_telemetry = _telem
 
         # ── Step 1: Validate input ───────────────────────────────────────
         self._emit("validate_input", "start",
@@ -137,11 +164,16 @@ class SkillExecutor:
 
         # ── Step 4: Dispatch ─────────────────────────────────────────────
         if skill.level == "composite":
-            return self._run_composite(skill, input_data, _call_stack)
-        return self._run_atomic(skill, input_data)
+            return self._run_composite(skill, input_data, _call_stack, _telem)
+        return self._run_atomic(skill, input_data, _telem)
 
-    # ── Atomic execution (LLM call) ──────────────────────────────────────────
-    def _run_atomic(self, skill: Skill, input_data: dict) -> dict:
+    # ── Atomic execution (LLM call + telemetry) ───────────────────────────────
+    def _run_atomic(
+        self,
+        skill: Skill,
+        input_data: dict,
+        _telem: Optional[ExecutionTelemetry] = None,
+    ) -> dict:
         prompt = self._build_prompt(skill, input_data)
 
         self._emit("call_llm", "start",
@@ -149,8 +181,10 @@ class SkillExecutor:
                    f" for atomic skill '{skill.name}'",
                    skill_name=skill.name)
 
+        t0 = time.time()
         if self.mock_mode:
             raw = self._mock_response(skill)
+            time.sleep(0.05)
         else:
             response = self._llm.chat.completions.create(
                 model=self.DEEPSEEK_MODEL,
@@ -167,31 +201,47 @@ class SkillExecutor:
                 temperature=0.3,
             )
             raw = response.choices[0].message.content.strip()
+            # Collect token telemetry
+            if _telem is not None and hasattr(response, "usage") and response.usage:
+                _telem.token_usage["prompt"]     += response.usage.prompt_tokens
+                _telem.token_usage["completion"] += response.usage.completion_tokens
+                _telem.token_usage["total"]      += response.usage.total_tokens
+
+        llm_ms = (time.time() - t0) * 1000
+        if _telem is not None:
+            _telem.latency_ms += llm_ms
 
         self._emit("call_llm", "success",
                    "LLM responded",
                    data={
-                       "raw_response": raw,                          # full response for test visibility
+                       "raw_response": raw,
                        "preview": raw[:120] + ("..." if len(raw) > 120 else ""),
+                       "latency_ms": round(llm_ms, 0),
                    },
                    skill_name=skill.name)
 
-        # ── Parse output ─────────────────────────────────────────────────
+        # ── Parse output with retry ──────────────────────────────────────
         self._emit("parse_output", "start",
                    "Parsing LLM response into structured JSON output",
                    skill_name=skill.name)
-        output = self._parse_json(raw)
+        output, retries = self._parse_json_with_retry(raw)
+        if _telem is not None:
+            _telem.retry_count += retries
         self._emit("parse_output", "success",
                    "Output parsed successfully",
-                   data={"output_keys": list(output.keys())},
+                   data={"output_keys": list(output.keys()), "retries": retries},
                    skill_name=skill.name)
         return output
 
-    # ── Composite execution (sub-skill pipeline) ─────────────────────────────
+    # ── Composite execution (sub-skill pipeline) ──────────────────────────────
     def _run_composite(
-        self, skill: Skill, input_data: dict, call_stack: Set[str]
+        self,
+        skill: Skill,
+        input_data: dict,
+        call_stack: Set[str],
+        _telem: Optional[ExecutionTelemetry] = None,
     ) -> dict:
-        # ── Cycle detection ──────────────────────────────────────────────
+        # Cycle detection
         if skill.name in call_stack:
             raise CyclicSkillError(
                 "compose",
@@ -206,7 +256,6 @@ class SkillExecutor:
                    data={"sub_skills": skill.sub_skills},
                    skill_name=skill.name)
 
-        # Accumulated state — starts with initial input, grows with each sub-skill output
         accumulated: Dict[str, Any] = dict(input_data)
 
         for idx, sub_name in enumerate(skill.sub_skills, start=1):
@@ -223,27 +272,26 @@ class SkillExecutor:
                     f"Available: {list(self.registry.skills.keys())}",
                 )
 
-            # Feed only the fields the sub-skill requires from accumulated state
             required_fields = sub_skill.input.get("required", [])
             sub_input = {k: accumulated[k] for k in required_fields if k in accumulated}
 
-            # Log exactly what input is being passed to this sub-skill
             self._emit("compose", "info",
                        f"     Input to '{sub_name}': {list(sub_input.keys())}",
-                       data={k: str(v)[:80] for k, v in sub_input.items() if not isinstance(v, str) or len(v) < 80},
+                       data={k: str(v)[:80] for k, v in sub_input.items()
+                             if not isinstance(v, str) or len(v) < 80},
                        skill_name=skill.name)
 
-            sub_output = self.run(sub_skill, sub_input, call_stack)
-            accumulated.update(sub_output)   # merge output into shared state
+            # Pass telemetry through to nested runs
+            sub_output = self.run(sub_skill, sub_input, call_stack, _telem)
+            accumulated.update(sub_output)
 
             self._emit("compose", "info",
                        f"     '{sub_name}' returned: {list(sub_output.keys())}",
                        data={k: str(v)[:80] for k, v in sub_output.items()},
                        skill_name=skill.name)
 
-        call_stack.discard(skill.name)       # backtrack — allow future non-cyclic calls
+        call_stack.discard(skill.name)
 
-        # Extract only the fields defined in the composite skill's output schema
         output_props = skill.output.get("properties", {})
         final_output = {k: accumulated[k] for k in output_props if k in accumulated}
 
@@ -253,7 +301,7 @@ class SkillExecutor:
                    skill_name=skill.name)
         return final_output
 
-    # ── Helpers ──────────────────────────────────────────────────────────────
+    # ── Helpers ───────────────────────────────────────────────────────────────
     def _emit(
         self,
         step: str,
@@ -262,13 +310,8 @@ class SkillExecutor:
         data: Optional[dict] = None,
         skill_name: str = "",
     ) -> LogEvent:
-        event = LogEvent(
-            step=step,
-            status=status,
-            message=message,
-            data=data,
-            skill_name=skill_name,
-        )
+        event = LogEvent(step=step, status=status, message=message,
+                         data=data, skill_name=skill_name)
         self.log_callback(event)
         return event
 
@@ -289,9 +332,27 @@ class SkillExecutor:
         text = text.strip()
         if text.startswith("```"):
             lines = text.splitlines()
-            # drop first line (```json) and last (```)
             text = "\n".join(lines[1:-1]) if lines[-1].strip() == "```" else "\n".join(lines[1:])
         return json.loads(text.strip())
+
+    def _parse_json_with_retry(self, text: str) -> Tuple[dict, int]:
+        """
+        Parse JSON from LLM response. On failure, attempt regex extraction.
+        Returns (result_dict, retry_count).
+        """
+        try:
+            return self._parse_json(text), 0
+        except json.JSONDecodeError:
+            pass
+        # Retry: extract first {...} block
+        m = re.search(r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}", text, re.DOTALL)
+        if m:
+            try:
+                return json.loads(m.group(0)), 1
+            except json.JSONDecodeError:
+                pass
+        raise ExecutionError("parse_output",
+                             f"Cannot parse LLM response as JSON: {text[:200]}")
 
     def _mock_response(self, skill: Skill) -> str:
         """Return a plausible fake response for offline testing."""
