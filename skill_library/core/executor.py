@@ -170,7 +170,10 @@ class SkillExecutor:
 
         self._emit("call_llm", "success",
                    "LLM responded",
-                   data={"preview": raw[:120] + ("..." if len(raw) > 120 else "")},
+                   data={
+                       "raw_response": raw,                          # full response for test visibility
+                       "preview": raw[:120] + ("..." if len(raw) > 120 else ""),
+                   },
                    skill_name=skill.name)
 
         # ── Parse output ─────────────────────────────────────────────────
@@ -224,8 +227,19 @@ class SkillExecutor:
             required_fields = sub_skill.input.get("required", [])
             sub_input = {k: accumulated[k] for k in required_fields if k in accumulated}
 
+            # Log exactly what input is being passed to this sub-skill
+            self._emit("compose", "info",
+                       f"     Input to '{sub_name}': {list(sub_input.keys())}",
+                       data={k: str(v)[:80] for k, v in sub_input.items() if not isinstance(v, str) or len(v) < 80},
+                       skill_name=skill.name)
+
             sub_output = self.run(sub_skill, sub_input, call_stack)
             accumulated.update(sub_output)   # merge output into shared state
+
+            self._emit("compose", "info",
+                       f"     '{sub_name}' returned: {list(sub_output.keys())}",
+                       data={k: str(v)[:80] for k, v in sub_output.items()},
+                       skill_name=skill.name)
 
         call_stack.discard(skill.name)       # backtrack — allow future non-cyclic calls
 
