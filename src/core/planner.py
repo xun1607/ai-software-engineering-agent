@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from core.htn_engine import htn_recursive_decompose
+from core.metrics import initial_metrics
 from core.recipe_loader import load_recipes
 from core.router import route_recipe
 from models.task import Plan, Task
@@ -12,7 +13,16 @@ def planner_node(state):
     recipes = load_recipes()
     route = route_recipe(user_input, recipes)
 
-    if route.matched and route.recipe_id:
+    if state.get("is_replanned"):
+        tasks = [
+            Task.from_recipe(
+                "fix_code_error",
+                recipes["fix_code_error"],
+                depends_on=[state.get("context_memory", {}).get("facts", {}).get("last_task_id", "")],
+            )
+        ]
+        strategy = "error_recovery_replan"
+    elif route.matched and route.recipe_id:
         tasks = htn_recursive_decompose(route.recipe_id, recipes)
         strategy = "recipe_htn"
     else:
@@ -45,9 +55,12 @@ def planner_node(state):
         "scheduler": {
             **state.get("scheduler", {}),
             "current_step": 0,
-            "retry_count": 0,
             "max_retries": state.get("scheduler", {}).get("max_retries", 1),
             "next_action": "continue" if plan.task_count else "end",
         },
+        "retry_count": state.get("retry_count", 0),
+        "last_error": state.get("last_error", ""),
+        "metrics": initial_metrics(state.get("metrics", {})),
+        "is_replanned": state.get("is_replanned", False),
         "errors": [],
     }

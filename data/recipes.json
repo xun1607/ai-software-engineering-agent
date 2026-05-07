@@ -2,13 +2,19 @@
   {
     "recipe_id": "unit_test_gen",
     "description": "Generate unit tests for a given function or module",
+    "tags": ["unit test", "test", "kiem thu", "viet test", "write test", "ki\u1ec3m th\u1eed", "vi\u1ebft test", "ki\u1ec3m tra \u0111\u01a1n v\u1ecb"],
     "type": "composite",
+    "inputs_required": ["content"],
+    "expected_outputs": ["code"],
     "subtasks": ["analyze_code_structure", "identify_test_cases", "generate_test_code"]
   },
   {
     "recipe_id": "analyze_code_structure",
     "description": "Analyze code structure",
+    "tags": ["phan tich code", "doc code", "read code", "analyze code", "ph\u00e2n t\u00edch code", "\u0111\u1ecdc code"],
     "type": "composite",
+    "inputs_required": ["content"],
+    "expected_outputs": ["functions"],
     "subtasks": ["read-file", "extract-metadata"]
   },
   {
@@ -16,6 +22,7 @@
     "description": "Read source code file content",
     "type": "primitive",
     "skill_id": "file-reader-skill",
+    "inputs_required": ["user_input"],
     "expected_outputs": ["content"]
   },
   {
@@ -45,7 +52,19 @@
   {
     "recipe_id": "debug-java-npe",
     "description": "Debug Java NullPointerException",
+    "tags": ["debug java", "null pointer", "NullPointerException", "loi null", "l\u1ed7i null"],
     "type": "primitive",
-    "skill_id": "debug-java-null-pointer"
+    "skill_id": "debug-java-null-pointer",
+    "inputs_required": ["error"],
+    "expected_outputs": ["answer"]
+  },
+  {
+    "recipe_id": "fix_code_error",
+    "description": "Fix code execution or generation errors during retry",
+    "tags": ["fix error", "repair code", "sua loi", "s\u1eeda l\u1ed7i"],
+    "type": "primitive",
+    "skill_id": "code-fixer-skill",
+    "inputs_required": ["last_error", "last_output"],
+    "expected_outputs": ["fixed_code"]
   }
 ]

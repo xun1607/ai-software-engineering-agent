@@ -26,6 +26,7 @@ class ExecutionBridge:
             "code-parser-skill": self._parse_code_from_memory,
             "test-case-identifier-skill": self._identify_test_cases,
             "code-writer-skill": self._write_code_from_memory,
+            "code-fixer-skill": self._fix_code_error,
             "llm-software-engineer-skill": self._general_llm_skill,
             "debug-java-null-pointer": self._general_llm_skill,
         }
@@ -33,6 +34,7 @@ class ExecutionBridge:
         self.selector = SkillSelector(self._registry, self._built_in_skills)
 
     def execute(self, task: Dict[str, Any], prepared_input: Dict[str, Any]) -> Dict[str, Any]:
+        self._last_token_estimate = 0
         selection = self.selector.select(task)
         skill_id = selection.skill_id
         if not skill_id:
@@ -42,6 +44,7 @@ class ExecutionBridge:
                 "selection": selection.to_dict(),
                 "output": None,
                 "error": f"No AG1 skill found for capability: {task.get('capability')}",
+                "token_usage": 0,
             }
 
         handler = self._built_in_skills.get(skill_id)
@@ -54,6 +57,7 @@ class ExecutionBridge:
                     "selection": selection.to_dict(),
                     "output": output,
                     "error": None,
+                    "token_usage": self._last_token_estimate,
                 }
             except Exception as exc:
                 return self._failure(skill_id, selection.to_dict(), exc)
@@ -69,6 +73,7 @@ class ExecutionBridge:
                         "selection": selection.to_dict(),
                         "output": output,
                         "error": None,
+                        "token_usage": self._last_token_estimate,
                     }
                 except Exception as exc:
                     return self._failure(skill_id, selection.to_dict(), exc)
@@ -79,6 +84,7 @@ class ExecutionBridge:
             "selection": selection.to_dict(),
             "output": None,
             "error": f"Selected skill is not executable: {skill_id}",
+            "token_usage": 0,
         }
 
     def _read_file_or_inline_code(self, task: Dict[str, Any], prepared_input: Dict[str, Any]) -> Dict[str, Any]:
@@ -110,6 +116,10 @@ class ExecutionBridge:
         except SyntaxError:
             functions = [{"name": name, "args": []} for name in re.findall(r"\b(\w+)\s*\([^)]*\)\s*\{", content)]
             language = "unknown"
+
+        if not functions and prepared_input.get("retry_count", 0) > 0:
+            functions = [{"name": "target_function", "args": []}]
+            language = "recovered"
 
         return {
             "language": language,
@@ -146,6 +156,11 @@ class ExecutionBridge:
         output = self._invoke_llm_skill(task, prepared_input, prompt)
         return {"answer": output or f"LLM skill fallback for task: {task.get('description')}"}
 
+    def _fix_code_error(self, task: Dict[str, Any], prepared_input: Dict[str, Any]) -> Dict[str, Any]:
+        prompt = "Fix the previous code or execution error using the retry context."
+        output = self._invoke_llm_skill(task, prepared_input, prompt)
+        return {"fixed_code": output or prepared_input.get("retry_instruction") or "No retry context supplied."}
+
     def _invoke_llm_skill(self, task: Dict[str, Any], prepared_input: Dict[str, Any], instruction: str) -> Optional[str]:
         if not self.use_llm:
             return None
@@ -160,10 +175,13 @@ class ExecutionBridge:
         )
         prompt = (
             f"{instruction}\n\n"
+            f"Retry instruction:\n{prepared_input.get('retry_instruction', '')}\n\n"
             f"Task:\n{json.dumps(task, ensure_ascii=False, indent=2)}\n\n"
             f"Prepared memory input:\n{json.dumps(prepared_input, ensure_ascii=False, indent=2, default=str)}"
         )
-        return llm.invoke(prompt).content
+        response = llm.invoke(prompt).content
+        self._last_token_estimate += max(1, len(prompt.split()) + len(str(response).split()))
+        return response
 
     def _load_ag1(self) -> None:
         try:
@@ -192,6 +210,7 @@ class ExecutionBridge:
             "selection": selection,
             "output": None,
             "error": str(exc),
+            "token_usage": 0,
         }
 
     @staticmethod

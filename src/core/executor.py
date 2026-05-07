@@ -1,16 +1,17 @@
 from __future__ import annotations
-from core.state import AgentState
+
 from typing import Any, Dict
 
 from core.evaluator import evaluate_result
 from core.execution_bridge import ExecutionBridge
+from core.metrics import add_token_usage, estimate_tokens, initial_metrics
 
 
 bridge = ExecutionBridge()
 
 
 def executor_node(state):
-    """Prepare memory-backed input, execute one task through AG1, and store result."""
+    """Execute the current task only; evaluator owns retry/advance decisions."""
     scheduler = state.get("scheduler", {})
     step_idx = scheduler.get("current_step", 0)
     tasks = state.get("plan", {}).get("tasks", [])
@@ -19,9 +20,14 @@ def executor_node(state):
 
     task = tasks[step_idx]
     print(f"[Executor] Step {step_idx + 1}/{len(tasks)} - {task.get('capability')}")
+    if state.get("retry_count", 0) > 0:
+        print(f"[Executor] Retry context: {state.get('last_error')}")
 
     prepared_input = _prepare_task_input(task, state)
     execution = bridge.execute(task, prepared_input)
+    token_usage = execution.get("token_usage", 0)
+    if token_usage == 0 and task.get("skill_id", "").startswith("llm"):
+        token_usage = estimate_tokens(prepared_input) + estimate_tokens(execution.get("output"))
     evaluation = evaluate_result(task, execution.get("output"), execution.get("error"))
 
     result = {
@@ -33,26 +39,23 @@ def executor_node(state):
         "success": execution.get("success", False) and evaluation["success"],
         "error": execution.get("error"),
         "evaluation": evaluation,
+        "token_usage": token_usage,
     }
 
     context_memory = _write_context_memory(state.get("context_memory", {}), task, result)
     artifacts = _write_artifacts(state.get("artifacts", {}), task, result)
 
-    next_step = step_idx + 1
-    failed = not result["success"]
-    done = next_step >= len(tasks)
-    next_action = "replan" if failed else "end" if done else "continue"
-
     return {
         "results": [result],
         "context_memory": context_memory,
         "artifacts": artifacts,
-        "status": "failed" if failed else "completed" if done else "running",
+        "metrics": add_token_usage(initial_metrics(state.get("metrics", {})), token_usage),
+        "status": "running",
         "scheduler": {
             **scheduler,
-            "current_step": next_step,
-            "next_action": next_action,
-            "replan_reason": result["error"] if failed else None,
+            "current_step": step_idx,
+            "next_action": "evaluate",
+            "replan_reason": result["error"],
         },
         "errors": [result["error"]] if result["error"] else [],
     }
@@ -74,7 +77,16 @@ def _prepare_task_input(task: Dict[str, Any], state: Dict[str, Any]) -> Dict[str
         "dependency_outputs": dependency_outputs,
         "last_output": memory.get("last_output"),
         "artifacts": state.get("artifacts", {}),
+        "retry_count": state.get("retry_count", 0),
+        "last_error": state.get("last_error", ""),
+        "retry_instruction": _retry_instruction(state),
     }
+
+
+def _retry_instruction(state: Dict[str, Any]) -> str:
+    if state.get("retry_count", 0) <= 0:
+        return ""
+    return f"The previous attempt failed with error: {state.get('last_error')}. Please fix it and provide a better result."
 
 
 def _write_context_memory(memory: Dict[str, Any], task: Dict[str, Any], result: Dict[str, Any]) -> Dict[str, Any]:
@@ -106,9 +118,3 @@ def _write_artifacts(artifacts: Dict[str, Any], task: Dict[str, Any], result: Di
         if key in output:
             updated[key] = output[key]
     return updated
-
-
-print("\n--- [DEBUG STATE] ---")
-print(f"Memory: {list(state['context_memory'].keys())}")
-print(f"Artifacts: {list(state['artifacts'].keys())}")
-print("----------------------\n")
