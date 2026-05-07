@@ -1,0 +1,45 @@
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# ===== Virtual Environment =====
+venv/
+.env/
+
+# ===== Environment Variables =====
+.env
+
+# ===== VS Code =====
+.vscode/
+
+# ===== Jupyter =====
+.ipynb_checkpoints/
+
+# ===== Logs =====
+*.log
+
+# ===== OS Files =====
+.DS_Store
+Thumbs.db
+
+# ===== Testing =====
+.pytest_cache/
+
+# ===== LangGraph / LangChain =====
+.langgraph_api/
+.cache/
+
+# ===== Vector DB =====
+chroma/
+faiss_index/
+
+# ===== Build =====
+dist/
+build/
+*.egg-info/
+
+# ===== Temporary =====
+temp/
+tmp/
