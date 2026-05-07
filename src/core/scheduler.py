@@ -5,23 +5,16 @@ from langgraph.graph import StateGraph, START, END
 
 from core.planner import planner_node
 from core.executor import executor_node
+from core.state import AgentState
 
-class AgentState(TypedDict):
-    task_input: str
-    context: dict   
-    plan: List[dict]       # Danh sách subtasks từ HTN
-    history: Annotated[List[str], operator.add] # Lịch sử thực thi để tiêp tục cải thiện kế hoạch
-    artifacts: dict        # Kết quả đầu ra
+# class AgentState(TypedDict):
+#     task_input: str
+#     context: dict   
+#     plan: List[dict]       # Danh sách subtasks từ HTN
+#     history: Annotated[List[str], operator.add] # Lịch sử thực thi để tiêp tục cải thiện kế hoạch
+#     artifacts: dict        # Kết quả đầu ra
     
     
-
-
-# ===== STATE =====
-class AgentState(TypedDict):
-    input: str
-    plan: List[dict]
-    results: Annotated[List[str], operator.add]
-    current_step: int
 
 
 # ===== CONTROL FLOW =====

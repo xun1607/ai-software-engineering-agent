@@ -1,6 +1,5 @@
 from core.scheduler import build_graph
 
-
 app = build_graph()
 inputs = {
     "input": "Hãy viết unit test cho hàm tính lương"
@@ -14,23 +13,16 @@ for output in app.stream(inputs):
 
         # ===== PLANNER =====
         if key == "planner":
-
             plan = value["plan"]
-
             print(f"Total Tasks: {len(plan)}")
-
             for idx, task in enumerate(plan, 1):
                 print(f"{idx}. {task['skill_id']}")
                 print(f"   -> {task['description']}")
 
         # ===== EXECUTOR =====
         elif key == "executor":
-
             result = value["results"][0]
-
             print(f"Task   : {result['task_id']}")
             print(f"Skill  : {result['skill']}")
-
             preview = result["output"][:120].replace("\n", " ")
-
             print(f"Output : {preview}...")
