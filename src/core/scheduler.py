@@ -1,30 +1,18 @@
-# langgraph state machine
-from typing import Annotated, List, TypedDict
-import operator
-from langgraph.graph import StateGraph, START, END
+from langgraph.graph import END, START, StateGraph
 
-from core.planner import planner_node
 from core.executor import executor_node
+from core.planner import planner_node
 from core.state import AgentState
 
-# class AgentState(TypedDict):
-#     task_input: str
-#     context: dict   
-#     plan: List[dict]       # Danh sách subtasks từ HTN
-#     history: Annotated[List[str], operator.add] # Lịch sử thực thi để tiêp tục cải thiện kế hoạch
-#     artifacts: dict        # Kết quả đầu ra
-    
-    
 
-
-# ===== CONTROL FLOW =====
 def should_continue(state: AgentState):
-    if state["current_step"] < len(state["plan"]):
+    if state.get("status") == "failed":
+        return "end"
+    if state.get("current_step", 0) < len(state.get("plan", [])):
         return "continue"
     return "end"
 
 
-# ===== BUILD GRAPH =====
 def build_graph():
     workflow = StateGraph(AgentState)
 
@@ -33,27 +21,22 @@ def build_graph():
 
     workflow.add_edge(START, "planner")
     workflow.add_edge("planner", "executor")
-
     workflow.add_conditional_edges(
         "executor",
         should_continue,
         {
             "continue": "executor",
-            "end": END
-        }
+            "end": END,
+        },
     )
 
     return workflow.compile()
 
 
-# ===== RUN (optional) =====
 if __name__ == "__main__":
     app = build_graph()
-
-    inputs = {
-        "input": "Hãy viết unit test cho hàm tính lương"
-    }
+    inputs = {"input": "Hay viet unit test cho ham tinh luong"}
 
     for output in app.stream(inputs):
         for key in output:
-            print(f"Node '{key}' đã hoàn thành.")
+            print(f"Node '{key}' completed.")

@@ -1,59 +1,107 @@
-from langchain_openai import ChatOpenAI
-import os
-from core.state import AgentState
-from core.router import route_skill
-from temp_skill.skills import skill_registry
-import json
-# Init LLM
-def get_llm():
-    return ChatOpenAI(
-        model="deepseek-coder",
-        openai_api_key=os.getenv("DEEPSEEK_API_KEY"),
-        openai_api_base="https://api.deepseek.com",
-        temperature=0
-    )
+# from langchain_openai import ChatOpenAI
+# import os
+# from core.state import AgentState
+# from core.router import route_skill
+# from temp_skill.skills import skill_registry
+# import json
+# # Init LLM
+# def get_llm():
+#     return ChatOpenAI(
+#         model="deepseek-coder",
+#         openai_api_key=os.getenv("DEEPSEEK_API_KEY"),
+#         openai_api_base="https://api.deepseek.com",
+#         temperature=0
+#     )
 
-llm = get_llm()
+# llm = get_llm()
 
-def run_task(task, user_input, memory, context: str):
-    """
-    Thực thi 1 task bằng LLM (giả lập skill execution)
-    """
-    prompt = f"""
-    Bạn là AI software engineer.
-    User Request:
-    {user_input}
-    Ngữ cảnh:
-    {context}
-    Shared Memory:
-    {memory}
+# def run_task(task, user_input, memory, context: str):
+#     """
+#     Thực thi 1 task bằng LLM (giả lập skill execution)
+#     """
+#     prompt = f"""
+#     Bạn là AI software engineer.
+#     User Request:
+#     {user_input}
+#     Ngữ cảnh:
+#     {context}
+#     Shared Memory:
+#     {memory}
 
-    Nhiệm vụ:
-    {task['description']}
-    Hãy thực hiện nhiệm vụ và trả về kết quả.
-    """
+#     Nhiệm vụ:
+#     {task['description']}
+#     Hãy thực hiện nhiệm vụ và trả về kết quả.
+#     """
 
-    response = llm.invoke(prompt)
-    return response.content
+#     response = llm.invoke(prompt)
+#     return response.content
 
-# Define executor node
-# def executor_node(state: AgentState):
+# # Define executor node
+# # def executor_node(state: AgentState):
+# #     step_idx = state["current_step"]
+# #     if step_idx >= len(state["plan"]):
+# #         return {"current_step": step_idx}
+# #     task = state["plan"][step_idx]
+
+# #     # lấy memory cũ
+# #     input_context = state.get("context_data", {})
+# #     print(f"[Executor] {task['skill_id']}")
+
+# #     # truyền toàn bộ state/context vào task
+# #     result = run_task(
+# #         task=task,
+# #         user_input=state["input"],
+# #         memory=input_context,
+# #         context="\n".join([f"{k}: {v}" for k, v in input_context.items()])
+# #     )
+# #     # update memory
+# #     new_context = {
+# #         **input_context,
+# #         task["id"]: result
+# #     }
+
+# #     return {
+# #         "results": [{
+# #         "task_id": task["id"],
+# #         "skill": task["skill_id"],
+# #         "output": result
+# #         }],
+# #     "context_data": new_context,
+# #     "current_step": step_idx + 1
+# #     }
+
+
+# def executor_node(state):
 #     step_idx = state["current_step"]
 #     if step_idx >= len(state["plan"]):
-#         return {"current_step": step_idx}
+#         return state
+
 #     task = state["plan"][step_idx]
-
-#     # lấy memory cũ
 #     input_context = state.get("context_data", {})
-#     print(f"[Executor] {task['skill_id']}")
+#     print(f"[Executor] Step {step_idx} - {task['skill_id']}")
+#     skill_type = route_skill(task)
 
-#     # truyền toàn bộ state/context vào task
-#     result = run_task(
-#         task=task,
-#         user_input=state["input"],
-#         memory=input_context,
-#         context="\n".join([f"{k}: {v}" for k, v in input_context.items()])
-#     )
+#     # -----------------------
+#     # 1. LLM SKILL
+#     # -----------------------
+#     if skill_type == "llm":
+#         result = run_task(
+#             task=task,
+#             user_input=state["input"],
+#             memory=input_context,
+#             context=json.dumps(input_context, ensure_ascii=False)
+#         )
+
+#     # -----------------------
+#     # 2. TOOL SKILL
+#     # -----------------------
+#     else:
+#         handler = skill_registry.get(task["skill_id"])
+#         if handler:
+#             result = handler(task, state)
+#         else:
+#             result = f"[ERROR] Unknown skill: {task['skill_id']}"
+
 #     # update memory
 #     new_context = {
 #         **input_context,
@@ -62,58 +110,59 @@ def run_task(task, user_input, memory, context: str):
 
 #     return {
 #         "results": [{
-#         "task_id": task["id"],
-#         "skill": task["skill_id"],
-#         "output": result
+#             "task_id": task["id"],
+#             "skill": task["skill_id"],
+#             "output": result
 #         }],
-#     "context_data": new_context,
-#     "current_step": step_idx + 1
+#         "context_data": new_context,
+#         "current_step": step_idx + 1
 #     }
+
+from __future__ import annotations
+
+from core.evaluator import evaluate_result
+from core.execution_bridge import ExecutionBridge
+
+
+bridge = ExecutionBridge(mock_mode=True)
 
 
 def executor_node(state):
-    step_idx = state["current_step"]
-    if step_idx >= len(state["plan"]):
-        return state
+    """Orchestrate one planned task through AG1 and update shared state."""
+    step_idx = state.get("current_step", 0)
+    plan = state.get("plan", [])
+    if step_idx >= len(plan):
+        return {"status": "completed", "current_step": step_idx}
 
-    task = state["plan"][step_idx]
-    input_context = state.get("context_data", {})
-    print(f"[Executor] Step {step_idx} - {task['skill_id']}")
-    skill_type = route_skill(task)
+    task = plan[step_idx]
+    print(f"[Executor] Step {step_idx + 1}/{len(plan)} - {task.get('capability')}")
 
-    # -----------------------
-    # 1. LLM SKILL
-    # -----------------------
-    if skill_type == "llm":
-        result = run_task(
-            task=task,
-            user_input=state["input"],
-            memory=input_context,
-            context=json.dumps(input_context, ensure_ascii=False)
-        )
+    execution = bridge.execute(task, state)
+    evaluation = evaluate_result(task, execution.get("output"), execution.get("error"))
 
-    # -----------------------
-    # 2. TOOL SKILL
-    # -----------------------
-    else:
-        handler = skill_registry.get(task["skill_id"])
-        if handler:
-            result = handler(task, state)
-        else:
-            result = f"[ERROR] Unknown skill: {task['skill_id']}"
-
-    # update memory
-    new_context = {
-        **input_context,
-        task["id"]: result
+    result = {
+        "task_id": task.get("id"),
+        "skill_id": execution.get("skill_id"),
+        "capability": task.get("capability"),
+        "output": execution.get("output"),
+        "success": execution.get("success", False) and evaluation["success"],
+        "error": execution.get("error"),
+        "evaluation": evaluation,
     }
 
+    context_data = {
+        **state.get("context_data", {}),
+        task.get("id"): result,
+    }
+
+    next_step = step_idx + 1
+    failed = not result["success"]
+    done = next_step >= len(plan)
+
     return {
-        "results": [{
-            "task_id": task["id"],
-            "skill": task["skill_id"],
-            "output": result
-        }],
-        "context_data": new_context,
-        "current_step": step_idx + 1
+        "results": [result],
+        "context_data": context_data,
+        "current_step": next_step,
+        "status": "failed" if failed else "completed" if done else "running",
+        "errors": [result["error"]] if result["error"] else [],
     }
