@@ -20,10 +20,11 @@ class ExecutionResult(TypedDict, total=False):
 class AgentState(TypedDict, total=False):
     input: str
     plan: List[Dict[str, Any]]
+    current_step: int
     matched_recipe_id: Optional[str]
     planning_strategy: str
     status: ExecutionStatus
     results: Annotated[List[ExecutionResult], operator.add]
-    current_step: int
-    context_data: Dict[str, Any]
+    context_data: Annotated[Dict[str, Any], operator.ior] # lưu dữ liệu thô, hội thoại,...
+    artifacts: Annotated[Dict[str, str], operator.ior] # Lưu sản phẩm cuối (file code, test case) để báo cáo
     errors: Annotated[List[str], operator.add]

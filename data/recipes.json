@@ -15,13 +15,32 @@
     "recipe_id": "read-file",
     "description": "Read source code file content",
     "type": "primitive",
-    "skill_id": "file-reader-skill"
+    "skill_id": "file-reader-skill",
+    "expected_outputs": ["content"]
   },
   {
     "recipe_id": "extract-metadata",
     "description": "Extract function names and params",
     "type": "primitive",
-    "skill_id": "code-parser-skill"
+    "skill_id": "code-parser-skill",
+    "inputs_required": ["content"],
+    "expected_outputs": ["functions"]
+  },
+  {
+    "recipe_id": "identify_test_cases",
+    "description": "Identify unit test cases from parsed code metadata",
+    "type": "primitive",
+    "skill_id": "test-case-identifier-skill",
+    "inputs_required": ["functions"],
+    "expected_outputs": ["test_cases"]
+  },
+  {
+    "recipe_id": "generate_test_code",
+    "description": "Generate unit test code from identified test cases",
+    "type": "primitive",
+    "skill_id": "code-writer-skill",
+    "inputs_required": ["test_cases"],
+    "expected_outputs": ["code"]
   },
   {
     "recipe_id": "debug-java-npe",

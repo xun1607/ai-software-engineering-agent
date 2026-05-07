@@ -1,168 +1,114 @@
-# from langchain_openai import ChatOpenAI
-# import os
-# from core.state import AgentState
-# from core.router import route_skill
-# from temp_skill.skills import skill_registry
-# import json
-# # Init LLM
-# def get_llm():
-#     return ChatOpenAI(
-#         model="deepseek-coder",
-#         openai_api_key=os.getenv("DEEPSEEK_API_KEY"),
-#         openai_api_base="https://api.deepseek.com",
-#         temperature=0
-#     )
-
-# llm = get_llm()
-
-# def run_task(task, user_input, memory, context: str):
-#     """
-#     Thực thi 1 task bằng LLM (giả lập skill execution)
-#     """
-#     prompt = f"""
-#     Bạn là AI software engineer.
-#     User Request:
-#     {user_input}
-#     Ngữ cảnh:
-#     {context}
-#     Shared Memory:
-#     {memory}
-
-#     Nhiệm vụ:
-#     {task['description']}
-#     Hãy thực hiện nhiệm vụ và trả về kết quả.
-#     """
-
-#     response = llm.invoke(prompt)
-#     return response.content
-
-# # Define executor node
-# # def executor_node(state: AgentState):
-# #     step_idx = state["current_step"]
-# #     if step_idx >= len(state["plan"]):
-# #         return {"current_step": step_idx}
-# #     task = state["plan"][step_idx]
-
-# #     # lấy memory cũ
-# #     input_context = state.get("context_data", {})
-# #     print(f"[Executor] {task['skill_id']}")
-
-# #     # truyền toàn bộ state/context vào task
-# #     result = run_task(
-# #         task=task,
-# #         user_input=state["input"],
-# #         memory=input_context,
-# #         context="\n".join([f"{k}: {v}" for k, v in input_context.items()])
-# #     )
-# #     # update memory
-# #     new_context = {
-# #         **input_context,
-# #         task["id"]: result
-# #     }
-
-# #     return {
-# #         "results": [{
-# #         "task_id": task["id"],
-# #         "skill": task["skill_id"],
-# #         "output": result
-# #         }],
-# #     "context_data": new_context,
-# #     "current_step": step_idx + 1
-# #     }
-
-
-# def executor_node(state):
-#     step_idx = state["current_step"]
-#     if step_idx >= len(state["plan"]):
-#         return state
-
-#     task = state["plan"][step_idx]
-#     input_context = state.get("context_data", {})
-#     print(f"[Executor] Step {step_idx} - {task['skill_id']}")
-#     skill_type = route_skill(task)
-
-#     # -----------------------
-#     # 1. LLM SKILL
-#     # -----------------------
-#     if skill_type == "llm":
-#         result = run_task(
-#             task=task,
-#             user_input=state["input"],
-#             memory=input_context,
-#             context=json.dumps(input_context, ensure_ascii=False)
-#         )
-
-#     # -----------------------
-#     # 2. TOOL SKILL
-#     # -----------------------
-#     else:
-#         handler = skill_registry.get(task["skill_id"])
-#         if handler:
-#             result = handler(task, state)
-#         else:
-#             result = f"[ERROR] Unknown skill: {task['skill_id']}"
-
-#     # update memory
-#     new_context = {
-#         **input_context,
-#         task["id"]: result
-#     }
-
-#     return {
-#         "results": [{
-#             "task_id": task["id"],
-#             "skill": task["skill_id"],
-#             "output": result
-#         }],
-#         "context_data": new_context,
-#         "current_step": step_idx + 1
-#     }
-
 from __future__ import annotations
+from core.state import AgentState
+from typing import Any, Dict
 
 from core.evaluator import evaluate_result
 from core.execution_bridge import ExecutionBridge
 
 
-bridge = ExecutionBridge(mock_mode=True)
+bridge = ExecutionBridge()
 
 
 def executor_node(state):
-    """Orchestrate one planned task through AG1 and update shared state."""
-    step_idx = state.get("current_step", 0)
-    plan = state.get("plan", [])
-    if step_idx >= len(plan):
-        return {"status": "completed", "current_step": step_idx}
+    """Prepare memory-backed input, execute one task through AG1, and store result."""
+    scheduler = state.get("scheduler", {})
+    step_idx = scheduler.get("current_step", 0)
+    tasks = state.get("plan", {}).get("tasks", [])
+    if step_idx >= len(tasks):
+        return {"status": "completed", "scheduler": {**scheduler, "next_action": "end"}}
 
-    task = plan[step_idx]
-    print(f"[Executor] Step {step_idx + 1}/{len(plan)} - {task.get('capability')}")
+    task = tasks[step_idx]
+    print(f"[Executor] Step {step_idx + 1}/{len(tasks)} - {task.get('capability')}")
 
-    execution = bridge.execute(task, state)
+    prepared_input = _prepare_task_input(task, state)
+    execution = bridge.execute(task, prepared_input)
     evaluation = evaluate_result(task, execution.get("output"), execution.get("error"))
 
     result = {
         "task_id": task.get("id"),
         "skill_id": execution.get("skill_id"),
         "capability": task.get("capability"),
+        "input": prepared_input,
         "output": execution.get("output"),
         "success": execution.get("success", False) and evaluation["success"],
         "error": execution.get("error"),
         "evaluation": evaluation,
     }
 
-    context_data = {
-        **state.get("context_data", {}),
-        task.get("id"): result,
-    }
+    context_memory = _write_context_memory(state.get("context_memory", {}), task, result)
+    artifacts = _write_artifacts(state.get("artifacts", {}), task, result)
 
     next_step = step_idx + 1
     failed = not result["success"]
-    done = next_step >= len(plan)
+    done = next_step >= len(tasks)
+    next_action = "replan" if failed else "end" if done else "continue"
 
     return {
         "results": [result],
-        "context_data": context_data,
-        "current_step": next_step,
+        "context_memory": context_memory,
+        "artifacts": artifacts,
         "status": "failed" if failed else "completed" if done else "running",
+        "scheduler": {
+            **scheduler,
+            "current_step": next_step,
+            "next_action": next_action,
+            "replan_reason": result["error"] if failed else None,
+        },
         "errors": [result["error"]] if result["error"] else [],
     }
+
+
+def _prepare_task_input(task: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
+    memory = state.get("context_memory", {})
+    task_results = memory.get("task_results", {})
+    dependency_outputs = {
+        dependency_id: task_results.get(dependency_id, {}).get("output")
+        for dependency_id in task.get("depends_on", [])
+        if dependency_id in task_results
+    }
+
+    return {
+        "user_input": state.get("input", ""),
+        "task": task,
+        "facts": memory.get("facts", {}),
+        "dependency_outputs": dependency_outputs,
+        "last_output": memory.get("last_output"),
+        "artifacts": state.get("artifacts", {}),
+    }
+
+
+def _write_context_memory(memory: Dict[str, Any], task: Dict[str, Any], result: Dict[str, Any]) -> Dict[str, Any]:
+    task_results = {
+        **memory.get("task_results", {}),
+        task.get("id"): result,
+    }
+    facts = {
+        **memory.get("facts", {}),
+        "last_task_id": task.get("id"),
+        "last_skill_id": result.get("skill_id"),
+    }
+
+    return {
+        **memory,
+        "task_results": task_results,
+        "facts": facts,
+        "last_output": result.get("output"),
+    }
+
+
+def _write_artifacts(artifacts: Dict[str, Any], task: Dict[str, Any], result: Dict[str, Any]) -> Dict[str, Any]:
+    output = result.get("output")
+    if not isinstance(output, dict):
+        return artifacts
+
+    updated = dict(artifacts)
+    for key in task.get("expected_outputs", []):
+        if key in output:
+            updated[key] = output[key]
+    return updated
+
+
+print("\n--- [DEBUG STATE] ---")
+print(f"Memory: {list(state['context_memory'].keys())}")
+print(f"Artifacts: {list(state['artifacts'].keys())}")
+print("----------------------\n")
