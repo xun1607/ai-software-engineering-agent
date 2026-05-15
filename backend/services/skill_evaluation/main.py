@@ -18,6 +18,7 @@ from pathlib import Path
 
 from fastapi import Body, FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse
 from lxml import etree
 from sqlalchemy import select
 
@@ -281,6 +282,61 @@ def evaluation_history(skill_id: str) -> dict:
                 for d in doc_reviews
             ],
         }
+
+
+@app.get("/evaluate/{skill_id}/xml", response_class=PlainTextResponse)
+def get_skill_xml(skill_id: str) -> str:
+    """Get the XML representation of a registered skill."""
+    with get_session() as session:
+        skill_orm = _get_skill_orm(skill_id, session)
+        metadata, instruction = parse_skill_markdown(skill_orm.raw_content)
+    return skill_to_xml(metadata, instruction)
+
+
+@app.get("/evaluate/{skill_id}/validate", response_model=ValidationResult)
+def validate_registered_skill(skill_id: str) -> ValidationResult:
+    """Validate a registered skill against format rules and XML Schema (XSD)."""
+    with get_session() as session:
+        skill_orm = _get_skill_orm(skill_id, session)
+        metadata, instruction = parse_skill_markdown(skill_orm.raw_content)
+    
+    # Format validation
+    format_errors = validate_skill_format(metadata, instruction)
+    format_result = ValidationResponse(valid=not format_errors, errors=format_errors)
+    
+    # Content (XSD) validation
+    schema = load_schema()
+    xml_payload = skill_to_xml(metadata, instruction)
+    parser = etree.XMLParser(resolve_entities=False, no_network=True)
+    doc = etree.fromstring(xml_payload.encode("utf-8"), parser)
+    
+    content_errors: list[str] = []
+    if not schema.validate(doc):
+        content_errors = [str(err) for err in schema.error_log]
+    
+    content_result = ValidationResponse(valid=not content_errors, errors=content_errors)
+    
+    return ValidationResult(format=format_result, content=content_result)
+
+
+@app.get("/criteria", response_class=PlainTextResponse)
+def get_criteria() -> str:
+    """Get the documentation review criteria XML."""
+    if not DOC_REVIEWER.CRITERIA_FILE.exists():
+        raise HTTPException(status_code=404, detail="Criteria file not found")
+    return DOC_REVIEWER.CRITERIA_FILE.read_text(encoding="utf-8")
+
+
+@app.post("/criteria")
+def update_criteria(xml_content: str = Body(..., embed=True)) -> dict:
+    """Update the documentation review criteria XML."""
+    try:
+        # Basic XML validation
+        etree.fromstring(xml_content.encode("utf-8"))
+        DOC_REVIEWER.CRITERIA_FILE.write_text(xml_content, encoding="utf-8")
+        return {"status": "success", "message": "Criteria updated"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid XML: {str(e)}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

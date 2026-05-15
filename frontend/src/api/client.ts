@@ -86,6 +86,16 @@ export interface FullEvaluation {
   evaluation?: EvaluationReport
 }
 
+export interface ValidationResponse {
+  valid: boolean
+  errors: string[]
+}
+
+export interface ValidationResult {
+  format: ValidationResponse
+  content: ValidationResponse
+}
+
 export interface DashboardData {
   skills: { total: number }
   evaluations: { total: number }
@@ -146,6 +156,18 @@ export const evaluationApi = {
 
   history: (skillId: string) =>
     eval_.get(`/evaluate/${skillId}/history`).then(r => r.data),
+
+  getCriteria: () =>
+    eval_.get<string>('/criteria').then(r => r.data),
+
+  updateCriteria: (xmlContent: string) =>
+    eval_.post('/criteria', { xml_content: xmlContent }).then(r => r.data),
+
+  validateSkill: (skillId: string) =>
+    eval_.get<ValidationResult>(`/evaluate/${skillId}/validate`).then(r => r.data),
+
+  getSkillXml: (skillId: string) =>
+    eval_.get<string>(`/evaluate/${skillId}/xml`).then(r => r.data),
 }
 
 // ── Testing API ───────────────────────────────────────────────────────────

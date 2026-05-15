@@ -39,6 +39,7 @@ output:
 
 ## Goal
 Fetch actual source code from disk to allow the Agent to see the buggy implementation.
+hehe
 
 ## Instructions
 This is a SYSTEM ACTION. The SkillExecutor will call a built-in Python function to read the file. 
