@@ -1,0 +1,7 @@
+pydantic-settings
+langgraph
+openai
+scikit-learn
+fastapi
+uvicorn
+httpx
