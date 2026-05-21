@@ -1,0 +1,9 @@
+fastapi
+langgraph
+langchain
+openai
+sentence-transformers
+torch
+pytest
+httpx
+python-dotenv
