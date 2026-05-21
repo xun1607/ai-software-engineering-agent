@@ -1,9 +1,8 @@
-import { useState, useRef, useEffect } from 'react'
-import { testingApi } from '../api/client'
-import { Play, Settings, Send, User, Bot, AlertCircle } from 'lucide-react'
+import { AlertCircle, Bot, Send, Settings, User } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 
 export default function TestingPage() {
-  const [messages, setMessages] = useState<{role: string, content: string}[]>([])
+  const [messages, setMessages] = useState<{ role: string, content: string }[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [model, setModel] = useState('deepseek-chat')
@@ -19,24 +18,141 @@ export default function TestingPage() {
     scrollToBottom()
   }, [messages])
 
+  // const handleSend = async () => {
+  //   if (!input.trim()) return
+
+  //   const newMessages = [...messages, { role: 'user', content: input }]
+  //   setMessages(newMessages)
+  //   setInput('')
+  //   setLoading(true)
+
+  //   let assistantMessageContent = ""
+  //   try {
+  //     const response = await fetch('http://localhost:8000/api/v1/chat/stream', {
+  //       method: 'POST',
+  //       headers: {
+  //         'Content-Type': 'application/json'
+  //       },
+  //       body: JSON.stringify({ message: input })
+  //     })
+  //     if (!response.body) throw new Error('ReadableStream not supported')
+  //     const reader = response.body.getReader()
+  //     const decoder = new TextDecoder('utf-8')
+  //     while (true) {
+  //       const { value, done } = await reader.read()
+  //       if (done) break
+
+  //       const chunk = decoder.decode(value, { stream: true })
+  //       const lines = chunk.split('\n')
+
+  //       for (const line of lines) {
+  //         if (line.startsWith('data: ')) {
+  //           const jsonStr = line.replace('data: ', '').trim()
+  //           if (!jsonStr) continue
+
+  //           const payload = JSON.parse(jsonStr)
+
+  //           if (payload.error) {
+  //             assistantMessageContent += `\n**Error:** ${payload.error}`
+  //           }
+  //           // Nếu nhận được kết quả phân tích từ các Node trung gian (Planner, Selector, Executor)
+  //           else if (payload.node && payload.node !== "RESPOND_NODE") {
+  //             if (payload.node === "PLAN_NODE") {
+  //               assistantMessageContent = `🧠 **Agent đang lập kế hoạch...**\n`
+  //             } else if (payload.node === "SELECT_SKILL_NODE") {
+  //               assistantMessageContent += `\n🎯 **Định tuyến kỹ năng:** Sử dụng [${payload.selected_skill}]`
+  //             } else if (payload.node === "EXECUTE_SKILL_NODE") {
+  //               assistantMessageContent += `\n⚡ **Thực thi:** Kết quả bước đã được ghi nhận.`
+  //             }
+  //           }
+  //           // Nếu nhận được kết quả cuối cùng từ RESPOND_NODE
+  //           else if (payload.final_response) {
+  //             assistantMessageContent = payload.final_response
+  //           }
+
+  //           setMessages([...newMessages, { role: 'assistant', content: assistantMessageContent }])
+  //         }
+  //       }
+  //     }
+  //   } catch (err: any) {
+  //     setMessages([...newMessages, { role: 'assistant', content: `**Error:** ${err.message}` }])
+  //   } finally {
+  //     setLoading(false)
+  //   }
+  // }
+
   const handleSend = async () => {
-    if (!input.trim()) return
-    
-    const newMessages = [...messages, { role: 'user', content: input }]
-    setMessages(newMessages)
-    setInput('')
-    setLoading(true)
-    
+    if (!input.trim()) return;
+    const userMsg = { role: 'user', content: input };
+    // Thêm tin nhắn user và một tin nhắn assistant trống để hứng stream
+    setMessages(prev => [...prev, userMsg, { role: 'assistant', content: '' }]);
+
+    const currentInput = input;
+    setInput('');
+    setLoading(true);
+
     try {
-      const res = await testingApi.chat(newMessages, model, apiKey)
-      setMessages(res.messages)
-    } catch (err: any) {
-      const errorMsg = err.response?.data?.detail || err.message || 'Chat failed'
-      setMessages([...newMessages, { role: 'assistant', content: `**Error:** ${errorMsg}` }])
+      const response = await fetch('http://localhost:8000/api/v1/chat/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: currentInput })
+      });
+
+      if (!response.body) throw new Error('ReadableStream not supported');
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let assistantText = "";
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const jsonStr = line.replace('data: ', '').trim();
+              if (!jsonStr) continue;
+              const payload = JSON.parse(jsonStr);
+
+              // LOGIC XỬ LÝ NỘI DUNG TỪ BACKEND
+              if (payload.node === "PLAN_NODE") {
+                assistantText = `🧠 **Đang lập kế hoạch...**\n`;
+              }
+              else if (payload.node === "SELECT_SKILL_NODE" && payload.selected_skill) {
+                assistantText += `\n🎯 **Sử dụng kỹ năng:** [${payload.selected_skill}]`;
+              }
+              else if (payload.node === "EXECUTE_SKILL_NODE") {
+                assistantText += `\n⚡ **Thực thi xong.**`;
+              }
+              if (payload.final_response) {
+                assistantText = payload.final_response;
+              }
+
+              if (payload.error) {
+                assistantText += `\n❌ **Lỗi:** ${payload.error}`;
+              }
+              setMessages(prev => {
+                const newMsgs = [...prev];
+                newMsgs[newMsgs.length - 1] = { role: 'assistant', content: assistantText };
+                return newMsgs;
+              });
+
+            } catch (e) {
+              console.error("Lỗi parse JSON chunk:", e);
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Stream error:", err);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -55,7 +171,7 @@ export default function TestingPage() {
             <h2 className="text-lg font-bold">Agent Chat</h2>
             <p className="text-xs text-[var(--text-muted)]">Interact with an autonomous agent powered by SWE skills</p>
           </div>
-          <button 
+          <button
             className={`btn ${showSettings ? 'btn-primary' : 'btn-secondary'}`}
             onClick={() => setShowSettings(!showSettings)}
           >
@@ -70,23 +186,21 @@ export default function TestingPage() {
               <Bot size={48} className="mb-4" />
               <p className="text-center">Start a conversation to test the agent's capabilities.</p>
               <p className="text-xs mt-2 text-center max-w-md">
-                Example: "fix bug file /home/user/buggy_code.py"<br/>
+                Example: "fix bug file /home/user/buggy_code.py"<br />
                 The agent will plan and execute composite skills dynamically.
               </p>
             </div>
           ) : (
             messages.filter(m => m.role !== 'system').map((msg, i) => (
               <div key={i} className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
-                  msg.role === 'user' ? 'bg-[var(--accent)] text-white' : 'bg-[#1e293b] text-[var(--accent-glow)]'
-                }`}>
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${msg.role === 'user' ? 'bg-[var(--accent)] text-white' : 'bg-[#1e293b] text-[var(--accent-glow)]'
+                  }`}>
                   {msg.role === 'user' ? <User size={16} /> : <Bot size={16} />}
                 </div>
-                <div className={`max-w-80 rounded-lg p-4 shadow-md ${
-                  msg.role === 'user' 
-                    ? 'bg-opacity-20 border border-[var(--accent)] border-opacity-30' 
-                    : 'bg-[var(--bg-secondary)] border border-[var(--border)]'
-                }`}>
+                <div className={`max-w-80 rounded-lg p-4 shadow-md ${msg.role === 'user'
+                  ? 'bg-opacity-20 border border-[var(--accent)] border-opacity-30'
+                  : 'bg-[var(--bg-secondary)] border border-[var(--border)]'
+                  }`}>
                   <pre className="font-sans whitespace-pre-wrap text-sm">{msg.content}</pre>
                 </div>
               </div>
@@ -94,13 +208,13 @@ export default function TestingPage() {
           )}
           {loading && (
             <div className="flex gap-3">
-               <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 bg-[#1e293b] text-[var(--accent-glow)]">
-                  <Bot size={16} />
-                </div>
-                <div className="max-w-80 rounded-lg p-4 shadow-md bg-[var(--bg-secondary)] border border-[var(--border)] flex items-center gap-2 text-[var(--text-muted)] text-sm">
-                  <div className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} />
-                  Agent is thinking and executing skills...
-                </div>
+              <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 bg-[#1e293b] text-[var(--accent-glow)]">
+                <Bot size={16} />
+              </div>
+              <div className="max-w-80 rounded-lg p-4 shadow-md bg-[var(--bg-secondary)] border border-[var(--border)] flex items-center gap-2 text-[var(--text-muted)] text-sm">
+                <div className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} />
+                Agent is thinking and executing skills...
+              </div>
             </div>
           )}
           <div ref={messagesEndRef} />
@@ -119,7 +233,7 @@ export default function TestingPage() {
               disabled={loading}
               style={{ background: '#0a0f18', minHeight: '60px' }}
             />
-            <button 
+            <button
               className="absolute right-2 bottom-2 p-2 rounded-lg bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white disabled:opacity-50 transition-colors"
               onClick={handleSend}
               disabled={!input.trim() || loading}
@@ -138,12 +252,12 @@ export default function TestingPage() {
         <div className="w-300 shrink-0 bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-5 flex flex-col gap-5 h-fit">
           <div>
             <h3 className="font-bold text-sm mb-4 border-b border-[var(--border)] pb-2">Agent Settings</h3>
-            
+
             <div className="form-group">
               <label className="form-label">Model Selection</label>
-              <select 
-                className="form-input form-select" 
-                value={model} 
+              <select
+                className="form-input form-select"
+                value={model}
                 onChange={e => setModel(e.target.value)}
               >
                 <option value="deepseek-chat">DeepSeek Chat (V3)</option>
@@ -156,22 +270,22 @@ export default function TestingPage() {
 
             <div className="form-group">
               <label className="form-label">API Key</label>
-              <input 
-                type="password" 
-                className="form-input" 
-                placeholder="sk-..." 
+              <input
+                type="password"
+                className="form-input"
+                placeholder="sk-..."
                 value={apiKey}
                 onChange={e => setApiKey(e.target.value)}
               />
               <p className="text-[11px] text-[var(--text-muted)] mt-1">Key is only stored in memory during this session.</p>
             </div>
-            
+
           </div>
-          
+
           <div className="mt-auto pt-4 border-t border-[var(--border)]">
-             <button className="btn btn-secondary w-full justify-center" onClick={() => setMessages([])}>
-                Clear Chat History
-             </button>
+            <button className="btn btn-secondary w-full justify-center" onClick={() => setMessages([])}>
+              Clear Chat History
+            </button>
           </div>
         </div>
       )}
