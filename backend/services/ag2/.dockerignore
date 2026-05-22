@@ -8,3 +8,11 @@ __pycache__/
 .git/
 .vscode/
 .env
+
+.pytest_cache
+.venv
+venv
+.env
+.git
+.cache
+models

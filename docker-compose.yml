@@ -68,8 +68,7 @@ services:
       context: ./backend/services/ag2
       dockerfile: Dockerfile
     environment:
-      - OPENAI_API_KEY=${OPENAI_API_KEY} # Lấy biến từ file .env local của bạn
-      # Kết nối sang service của bạn kia thông qua DNS nội bộ của Docker thay vì localhost
+      - OPENAI_API_KEY=${OPENAI_API_KEY} # Lấy biến từ file .env
       - REGISTRY_URL=http://skill-management:8001 
     volumes:
       - ./backend/services/ag2:/app
