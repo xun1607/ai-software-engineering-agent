@@ -1,17 +1,27 @@
-import httpx
-from typing import Dict, Any
+from asyncio.log import logger
 
-class BackendClient:
+import httpx
+from typing import Dict, Any, List
+
+from backend.shared.schemas import SkillRead
+
+class SkillManagementClient:
     def __init__(self, base_url: str = "http://localhost:8000"):
         self.base_url = base_url
-        self.client = httpx.AsyncClient()
+        self.client = httpx.AsyncClient(base_url=self.base_url, timeout=30.0)
 
-    async def call_skill(self, skill_id: str, input_data: Dict[str, Any]) -> Dict[str, Any]:
-        url = f"{self.base_url}/skills/{skill_id}/execute"
-        async with self.client as client:
-            response = await client.post(url, json=input_data)
+    async def fetch_all_skills(self) -> List[SkillRead]:
+        try:
+            response = await self.client.get("/api/v1/skills")
             response.raise_for_status()
-            return response.json()
-
+            data = response.json()
+            items = data.get("items", data)
+            return [SkillRead(**item) for item in items]
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Lỗi API từ Skill Management: {e.response.status_code}")
+            raise
+        except Exception as e:
+            logger.error(f"Lỗi kết nối đến Skill Management: {str(e)}")
+            raise
     async def close(self):
         await self.client.aclose()

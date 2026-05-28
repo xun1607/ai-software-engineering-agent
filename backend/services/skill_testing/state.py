@@ -1,29 +1,31 @@
-# from typing import List, Dict, Any, Optional, Annotated
-# from pydantic import BaseModel
-# import operator
-
-# class AgentState(BaseModel):
-#     task: str
-#     plan: List[Dict[str, Any]]
-#     current_step_index: int = 0
-#     past_steps: Annotated[List[tuple], operator.add]
-#     status: str = "init"
-#     final_result: Optional[Any] = None
-#     error: Optional[str] = None
-    
 from typing import TypedDict, Annotated, List, Optional, Any, Dict
 import operator
 
-class AgentState(TypedDict):
-    """
-    State quản lý toàn bộ luồng thực thi của Agent Orchestrator.
-    """
-    task: str
-    plan: Optional[List[Any]]
-    current_step_index: int
-    # Lưu kết quả các bước đã chạy: [(action_name, observation_result)]
-    past_steps: Annotated[List[tuple[str, str]], operator.add]
-    # Trạng thái hiện tại: 'planning', 'awaiting_approval', 'executing', 'completed', 'error'
-    status: str
-    final_result: Optional[str]
-    error: Optional[str]
+from pydantic import BaseModel
+
+
+class AgentState(BaseModel):
+    user_context: Dict[str, str]
+    plan: List[str] = []
+    history: List[Dict] = []
+    reflection: List[str] = []
+    
+    current_step_idx: int = 0
+    current_task: Optional[str] = None
+    
+    selected_skill: Optional[str] = None
+    last_thought: Optional[str] = None
+    last_observation: Optional[str] = None
+    is_finished: bool = False
+    retry_count: int = 0
+    final_answer: Optional[str] = None
+    
+    goal: Optional[str] = None  
+    missing_skills_log: List[str] = []
+    # exception
+    replan_count: int = 0
+    max_replans: int = 3
+    
+    max_total_steps: int = 12
+    step_count: int = 0
+    
