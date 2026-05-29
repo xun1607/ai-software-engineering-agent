@@ -38,7 +38,7 @@
 # backend/services/skill_testing/core/plan_node.py
 
 import json
-from backend.services.skill_testing.state import AgentState
+from services.skill_testing.state import AgentState
 
 from .skill_manager import SkillManager
 from .registry import semantic_registry

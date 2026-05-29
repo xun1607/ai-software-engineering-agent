@@ -1,5 +1,5 @@
 from typing import List
-from backend.shared.schemas import SkillRead
+from shared.schemas import SkillRead
 
 class SkillManager:
     @staticmethod

@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
-from backend.services.skill_testing.state import AgentState
+from services.skill_testing.state import AgentState
 
 def process_initial_input(code: str, stacktrace: Optional[str], message: str, user_input: str) -> AgentState:
     """ Chuan hoa du lieu dau vao thanh state ban dau"""

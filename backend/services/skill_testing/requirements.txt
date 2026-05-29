@@ -5,3 +5,11 @@ scikit-learn
 fastapi
 uvicorn
 httpx
+
+
+
+pydantic
+sentence-transformers
+python-frontmatter
+pyyaml
+sqlalchemy

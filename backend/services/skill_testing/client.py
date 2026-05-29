@@ -3,7 +3,7 @@ from asyncio.log import logger
 import httpx
 from typing import Dict, Any, List
 
-from backend.shared.schemas import SkillRead
+from shared.schemas import SkillRead
 
 class SkillManagementClient:
     def __init__(self, base_url: str = "http://localhost:8000"):

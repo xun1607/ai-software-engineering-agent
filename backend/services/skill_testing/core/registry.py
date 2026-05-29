@@ -1,6 +1,6 @@
 from sentence_transformers import SentenceTransformer, util
 
-from backend.shared.schemas import SkillRead
+from shared.schemas import SkillRead
 from typing import Dict, List, Optional
 
 MODEL_NAME = "all-MiniLM-L6-v2"

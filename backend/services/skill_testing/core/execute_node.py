@@ -1,6 +1,6 @@
 import json
-from backend.services.skill_testing.state import AgentState
-from backend.services.skill_testing.core.registry import semantic_registry
+from services.skill_testing.state import AgentState
+from services.skill_testing.core.registry import semantic_registry
 
 async def execute_node(state: AgentState, model_client, skill_client):
     """

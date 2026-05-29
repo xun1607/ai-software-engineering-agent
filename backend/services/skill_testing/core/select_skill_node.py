@@ -1,6 +1,6 @@
 import json
-from backend.services.skill_testing.core.registry import semantic_registry
-from backend.services.skill_testing.state import AgentState
+from services.skill_testing.core.registry import semantic_registry
+from services.skill_testing.state import AgentState
 
 def select_skill_node(state: AgentState, model_client, registry):
     current_task = state.plan[state.current_step_idx]
