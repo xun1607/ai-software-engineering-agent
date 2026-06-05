@@ -47,21 +47,23 @@ services:
       postgres:
         condition: service_healthy
 
-  skill-testing:
-    build: ./backend
-    command: uvicorn services.skill_testing.main:app --host 0.0.0.0 --port 8003 --reload
-    environment:
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-      SKILL_DB_URL: postgresql://skill:skill@postgres:5432/skills
-      SKILLS_DIR: /data/skills
-    volumes:
-      - ./backend/services/skill_management/skill_library/skills:/data/skills
-      - ./backend:/app
-    ports:
-      - "8003:8003"
-    depends_on:
-      postgres:
-        condition: service_healthy
+  # skill-testing:
+  #   build: 
+  #     context: ./backend
+  #     dockerfile: services/skill_testing/Dockerfile
+  #   command: uvicorn services.skill_testing.main:app --host 0.0.0.0 --port 8003 --reload
+  #   environment:
+  #     OPENAI_API_KEY: ${OPENAI_API_KEY}
+  #     SKILL_DB_URL: postgresql://skill:skill@postgres:5432/skills
+  #     SKILLS_DIR: /data/skills
+  #   volumes:
+  #     - ./backend/services/skill_management/skill_library/skills:/data/skills
+  #     - ./backend:/app
+  #   ports:
+  #     - "8003:8003"
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
 
   # ── Backend Services ───────────────────────────────────────────────────────
   skill-reporting:

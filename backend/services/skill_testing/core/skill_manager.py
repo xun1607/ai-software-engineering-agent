@@ -1,25 +1,28 @@
 from typing import List
-from shared.schemas import SkillRead
 
 class SkillManager:
     @staticmethod
-    def get_capabilities(skills: List[SkillRead]) -> str:
-        if not skills:
+    def get_capabilities(skills: List[str]) -> str:
+        if not skills or len(skills) == 0:
             return "No skills available. Please check the skill management service."
+            
         categories = {}
-        for s in skills:
-            cat = s.category if s.category else "General"
+        for skill_name in skills:
+            skill_name_lower = skill_name.lower()
+            if "java" in skill_name_lower:
+                cat = "JAVA_DEVELOPMENT"
+            elif "test" in skill_name_lower or "maven" in skill_name_lower or "pytest" in skill_name_lower:
+                cat = "TESTING_&_VERIFICATION"
+            elif "git" in skill_name_lower or "commit" in skill_name_lower:
+                cat = "VERSION_CONTROL"
+            else:
+                cat = "GENERAL_UTILITIES"
+
             if cat not in categories:
                 categories[cat] = []
-
-            desc = ""
-            if isinstance(s.metadata, dict):
-                desc = s.metadata.get('description', '')
-            elif hasattr(s, 'metadata_json') and isinstance(s.metadata_json, dict):
-                desc = s.metadata_json.get('description', '')
-
-            short_desc = (desc[:80] + '...') if len(desc) > 80 else desc
-            categories[cat].append(f"- {s.name}: {short_desc}")
+                
+            readable_desc = skill_name.replace("_", " ").capitalize()
+            categories[cat].append(f"- {skill_name}: Capability to execute {readable_desc}")
 
         lines = ["### SYSTEM CAPABILITIES AND CATEGORIES ###"]
         for cat, skill_list in categories.items():

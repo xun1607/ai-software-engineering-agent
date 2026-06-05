@@ -6,9 +6,9 @@ from pydantic import BaseModel
 
 class AgentState(BaseModel):
     user_context: Dict[str, str]
-    plan: List[str] = []
-    history: List[Dict] = []
-    reflection: List[str] = []
+    plan: list[str] = []
+    history: list[Dict[str, Any]] = []
+    reflection: list[str] = []
     
     current_step_idx: int = 0
     current_task: Optional[str] = None
@@ -21,7 +21,7 @@ class AgentState(BaseModel):
     final_answer: Optional[str] = None
     
     goal: Optional[str] = None  
-    missing_skills_log: List[str] = []
+    missing_skills_log: list[str] = []
     # exception
     replan_count: int = 0
     max_replans: int = 3

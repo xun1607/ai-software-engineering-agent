@@ -19,3 +19,10 @@ pg-data/
 **/*.pyo
 **/*.pyd
 .env
+
+
+
+__pycache__/
+*.pyc
+db.sqlite3
+.pytest_cache/
