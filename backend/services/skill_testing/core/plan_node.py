@@ -4,34 +4,33 @@ from services.skill_testing.state import AgentState
 from .skill_manager import SkillManager
 from .registry import semantic_registry
 
-def plan_node(state: AgentState, model_client):
+async def plan_node(state: AgentState, model_client):
     print("--- [Planning Node] Generating plan based on user context and available skills ---")
     
-    available_skills = semantic_registry.all_skills()
-    capabilities = SkillManager.get_capabilities(available_skills)
+    available_tools = semantic_registry.get_all_tools()
+    capabilities = SkillManager.get_capabilities(available_tools)
     
+    # Sửa lại system_prompt bên trong plan_node.py của ní
     system_prompt = f"""
-    You are an expert Software Engineer AI, Your goal is to solve the user's software engineering problem by breaking it down into smaller tasks and assigning them to the appropriate skills.
-    System capabilities: {capabilities}
-    INTRUCTIONS:
-    1. Decompose the problem into step-by-step plan
-    2. Each step should be a specific task that can be matched with a skill capability
-    3. If there is a 'Reflection' from previous failed attempts, adjust the plan to avoid those mistakes.
-    4. Output ONLY a JSON object with the key 'plan' containing a list of strings
-    EXAMPLE OUTPUT FORMAT:
-    {{
-        "plan": ["java_file_reader", "maven_test_runner"]
-    }}
+    You are the Lead Software Architect AI. Your job is to analyze a Java software issue and generate a sequential plan to fix it.
+    CRITICAL RULE:
+    You must ONLY use the exact tool names listed in the  AVAILABLE TOOLS catalog below to build your plan.
+    Do NOT create custom text, instructions, or sub-steps like 'check_user_object_for_null'. 
+    Every element in your plan list MUST match one of the available tool names perfectly.
+    AVAILABLE TOOLS CATALOG FROM AG1 REGISTRY:
+        {capabilities}
+    Output a valid JSON object containing exactly one field 'plan', which is a list of strings representing the selected tool names in order.
+    Example: {{"plan": ["analyze-stacktrace", "suggest-java-fix", "debug-java-null-pointer"]}}
     """
     user_prompt = f"""
     CONTEXT:
     Code: {state.user_context['code']}
     Error: {state.user_context['stacktrace']}
     Request: {state.user_context['message']}
-    PREVIOUS REFLECTION:
+    PREVIOUS REFLECTION (IF ANY):
     {state.reflection}
     """
-    response = model_client.call(system_prompt, user_prompt) #TODOS: xem lai interface cua model_client
+    response = await model_client.call(system_prompt, user_prompt) #TODOS: xem lai interface cua model_client
     if not state.goal:
         state.goal = state.user_context.get('message')
         

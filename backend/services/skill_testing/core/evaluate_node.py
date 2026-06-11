@@ -1,7 +1,9 @@
 import json
+import re
+import os
 from services.skill_testing.state import AgentState
 
-def evaluate_node(state: AgentState, model_client):
+async def evaluate_node(state: AgentState, model_client, skill_client=None):
     state.step_count += 1
     if state.step_count > state.max_total_steps:
         state.is_finished = True
@@ -15,6 +17,51 @@ def evaluate_node(state: AgentState, model_client):
 
     current_task = state.plan[state.current_step_idx]
     
+    # --- [TASK 5] Error-driven Stub Generation ---
+    # Khi nhận diện last_observation chứa từ khóa "error: cannot find symbol: class User", không được crash hệ thống.
+    if state.last_observation and "error: cannot find symbol: class User" in state.last_observation:
+        print("⚠️ [ERROR-DRIVEN STUB GENERATION] Detected missing class User in compilation output. Generating stub...")
+        
+        # Bẻ luồng ép LLM sinh ra nội dung file giữ chỗ (User.java rỗng)
+        system_prompt = "You are a Java Stub Code Generator."
+        user_prompt = (
+            "The compiler failed because 'class User' is missing. "
+            "Please generate a minimal Java class definition for 'User' (e.g. package declarations if any, public class User with empty constructor or minimal stub methods like getName() returning String or empty string). "
+            "Output ONLY the Java code, no markdown block syntax, no extra text."
+        )
+        
+        try:
+            stub_code = await model_client.call(system_prompt, user_prompt)
+            # Remove any markdown format code block if present
+            if "```" in stub_code:
+                code_match = re.search(r"```(?:java)?\s*(.*?)\s*```", stub_code, re.DOTALL)
+                if code_match:
+                    stub_code = code_match.group(1)
+            stub_code = stub_code.strip()
+        except Exception as e:
+            print(f"❌ LLM call failed for Stub Generation: {e}. Falling back to default stub.")
+            stub_code = "public class User {\n    public String getName() { return \"\"; }\n}"
+            
+        # Điều hướng skill_client ghi file vật lý xuống ổ cứng workspace/ cạnh file cũ
+        if skill_client:
+            skill_client.setup_initial_workspace(stub_code, "User.java")
+            print("💾 [STUB GENERATOR] Wrote stub User.java using skill_client.")
+        else:
+            # Fallback direct file write
+            fallback_dir = os.path.abspath(
+                os.path.join(os.path.dirname(__file__), "..", "..", "..", "workspace", "src", "main", "java")
+            )
+            os.makedirs(fallback_dir, exist_ok=True)
+            with open(os.path.join(fallback_dir, "User.java"), "w", encoding="utf-8") as f:
+                f.write(stub_code)
+            print("💾 [STUB GENERATOR] Wrote stub User.java directly.")
+            
+        # Thiết lập để chạy lại biên dịch ở bước tiếp theo mà không crash
+        state.retry_count = 1
+        state.reflection.append("🔄 Stub User.java generated due to missing class compilation error. Retrying compiler.")
+        state.last_observation = "Stub User.java created. Retrying compiler step."
+        return state
+
     system_prompt = f"""
     You are a Quality Assurance Engineer. Evaluate if the task was completed successfully based on the observation.
     GOAL: {state.goal or state.user_context['message']}
@@ -25,7 +72,7 @@ def evaluate_node(state: AgentState, model_client):
     - If it failed, timed out, or returned an error, return {{"is_success": false, "analysis": "..."}}
     - Output ONLY JSON.
     """
-    response = model_client.call(system_prompt, "Evaluate the result.")
+    response = await model_client.call(system_prompt, "Evaluate the result.")
     try:
         evaluation = json.loads(response)
         is_success = evaluation.get("is_success", False)

@@ -1,14 +1,16 @@
 from typing import TypedDict, Annotated, List, Optional, Any, Dict
 import operator
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class AgentState(BaseModel):
-    user_context: Dict[str, str]
-    plan: list[str] = []
-    history: list[Dict[str, Any]] = []
-    reflection: list[str] = []
+    model_config = ConfigDict(arbitrary_types_allowed=True, extra="allow")
+
+    user_context: Dict[str, Any] = Field(default_factory=dict)
+    plan: list[str] = Field(default_factory=list)
+    history: list[Dict[str, Any]] = Field(default_factory=list)
+    reflection: list[str] = Field(default_factory=list)
     
     current_step_idx: int = 0
     current_task: Optional[str] = None
@@ -21,7 +23,7 @@ class AgentState(BaseModel):
     final_answer: Optional[str] = None
     
     goal: Optional[str] = None  
-    missing_skills_log: list[str] = []
+    missing_skills_log: list[str] = Field(default_factory=list)
     # exception
     replan_count: int = 0
     max_replans: int = 3

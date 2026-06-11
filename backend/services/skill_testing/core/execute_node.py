@@ -79,18 +79,18 @@ async def execute_node(state: AgentState, model_client, skill_client):
     3. Gọi API thực thi kỹ năng ngầm và lưu kết quả.
     """
     skill_name = state.selected_skill
-    print(f"\n🚀 [EXECUTE NODE] -> Đang kích hoạt kỹ năng: '{skill_name}' (Bước tổng thể: {state.step_count + 1})")
-    
-    # 1. Xác thực nhanh sự tồn tại của kỹ năng (Kiểu str) trong bộ nhớ RAM Registry
-    matched_skill = semantic_registry.get_skill_by_name(skill_name)
-    
-    if not matched_skill:
-        state.last_observation = f"Error: Skill '{skill_name}' not found in registry cache."
-        print(f"❌ [SYSTEM ERROR] -> Thao tác thất bại: {state.last_observation}")
-        return state
-
-    # Tăng số bước thực hiện để phục vụ cho bộ đếm Circuit Breaker bảo vệ chi phí (AG2)
     state.step_count += 1
+    print(f"\n🚀 [EXECUTE NODE] -> Đang kích hoạt kỹ năng: '{skill_name}' (Bước tổng thể: {state.step_count})")
+    skill_info = state.user_context.get("current_skill_metadata", {})
+    
+    if not skill_info:
+        state.last_observation = json.dumps({"status": "FAILED", "message": "Thiếu dữ liệu SOP"})
+        return state
+    
+    skill_instructions = skill_info.get("raw_content") or skill_info.get("full_markdown") or ""
+    metadata = skill_info.get("metadata", {})
+    input_schema = metadata.get("input", {})
+
 
     # 2. Thiết lập Prompt tối giản giúp LLM tự định hình tham số dựa theo Tên kỹ năng
     system_prompt = f"""
@@ -115,7 +115,7 @@ async def execute_node(state: AgentState, model_client, skill_client):
     """
     
     # Gọi LLM xử lý bóc tách tham số
-    arg_response = model_client.call(system_prompt, user_prompt)
+    arg_response = await model_client.call(system_prompt, user_prompt)
     
     try:
         # Giải mã tham số cấu trúc JSON
@@ -129,11 +129,11 @@ async def execute_node(state: AgentState, model_client, skill_client):
         execution_result = await skill_client.execute_skill(skill_name, args)
         
         # Lưu kết quả thô nhận được từ hệ thống vào observation để mồi cho evaluate_node
-        state.last_observation = json.dumps(execution_result)
+        state.last_observation = json.dumps(execution_result, ensure_ascii=False)
         print(f"📦 [OBSERVATION] -> Kết quả thô từ hệ thống: {state.last_observation}")
         
     except Exception as e:
-        state.last_observation = f"Execution failed during parameter parsing or API call: {str(e)}"
+        state.last_observation = json.dumps({"status": "FAILED", "stdout": "", "stderr": str(e), "message": "Gãy định dạng JSON"}, ensure_ascii=False)
         print(f"❌ [SYSTEM ERROR] -> Quá trình thực thi kỹ năng bị gián đoạn: {str(e)}")
         
     # Ghi nhận vết lịch sử chạy ngầm của hệ thống

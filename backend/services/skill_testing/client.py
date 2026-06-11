@@ -15,7 +15,10 @@
 #             response = await self.client.get("/api/v1/skills")
 #             response.raise_for_status()
 #             data = response.json()
-#             items = data.get("items", data)
+#             if isinstance(data, dict):
+#                 items = data.get("items", data)
+#             else:
+#                 items = data
 #             return [SkillRead(**item) for item in items]
 #         except httpx.HTTPStatusError as e:
 #             logger.error(f"Lỗi API từ Skill Management: {e.response.status_code}")
@@ -196,30 +199,33 @@ MOCK_SKILLS_DATA = {
 class SkillManagementClient:
     def __init__(self, base_url: str = "http://localhost:8001"):
         self.base_url = base_url
-        # Vẫn khởi tạo client nhưng thực tế sẽ dùng dữ liệu MOCK cho POC
         self.client = httpx.AsyncClient(base_url=self.base_url, timeout=10.0)
 
-    async def fetch_all_skills(self) -> List[SkillRead]:
-        """[MOCK] Trả về 7 skills để Agent lập kế hoạch"""
-        logger.info("--- [MOCK] Đang lấy danh sách kỹ năng ---")
-        skills = []
-        for item in MOCK_DATA:
-            skills.append(SkillRead(
-                id=item["id"], name=item["name"], version="1.0.0", level="atomic",
-                category=item["category"], tags=[],
-                metadata={"description": item["desc"], "input": {"type": "object", "properties": {}}},
-                updated_at=datetime.now(), raw_content="", full_markdown=""
-            ))
-        return skills
+    # async def fetch_all_skills(self) -> List[str]:
+    #     """[MOCK] Trả về 7 skills để Agent lập kế hoạch"""
+    #     logger.info("--- [MOCK] Đang lấy danh sách kỹ năng ---")
+    #     skills = []
+    #     for item in MOCK_DATA:
+    #         skills.append(
+    #             id=item["id"], name=item["name"], version="1.0.0", level="atomic",
+    #             category=item["category"], tags=[],
+    #             metadata={"description": item["desc"], "input": {"type": "object", "properties": {}}},
+    #             updated_at=datetime.now(), raw_content="", full_markdown=""
+    #         )
+    #     return skills
 
-    async def execute_skill(self, skill_id: str, input_data: Dict[str, Any]) -> Dict[str, Any]:
-        """[MOCK] Giả lập kết quả chạy kỹ năng thành công"""
-        logger.info(f"--- [MOCK] Đang thực thi kỹ năng ID: {skill_id} ---")
-        return {
-            "status": "success",
-            "output": f"Mock result: Task completed successfully using skill {skill_id}.",
-            "data": input_data
-        }
-
+    async def load_available_skills(self) -> list[str]:
+        """Gọi sang endpoint của AG1 để lấy danh sách skill"""
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(f"{self.base_url}/api/v1/skills")
+                if response.status_code == 200:
+                    data = response.json()
+                    return [item["name"] for item in data.get("items", [])]
+                return []
+        except Exception as e:
+            print(f"⚠️ Không thể kết nối Microservice AG1: {e}. Sử dụng danh sách rỗng.")
+            return []
+   
     async def close(self):
         await self.client.aclose()

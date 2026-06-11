@@ -57,3 +57,13 @@ yarn-error.log*
 models/
 cache/
 .huggingface/
+
+
+# Chặn các file tạm thời của SQLite dữ liệu phân tầng
+*.db-shm
+*.db-wal
+*.db
+
+# Chặn sản phẩm biên dịch vật lý của Java Runtime (TASK 4 hiện trường)
+backend/workspace/src/main/java/*.class
+backend/workspace/src/main/java/LoginService

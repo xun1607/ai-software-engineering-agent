@@ -5,7 +5,9 @@ from pathlib import Path
 
 # ── Database ─────────────────────────────────────────────────────────────────
 DEFAULT_POSTGRES_DSN = "postgresql://skill:skill@postgres:5432/skills"
-DEFAULT_SQLITE_PATH = "/data/skills.db"
+_SHARED_DIR = Path(__file__).resolve().parent
+DEFAULT_SQLITE_PATH = str(_SHARED_DIR / "skills.db")
+# DEFAULT_SQLITE_PATH = "/data/skills.db"
 
 
 def get_database_url() -> str:
