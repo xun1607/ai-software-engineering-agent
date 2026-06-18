@@ -1,7 +1,55 @@
 import json
 import re
 import os
+import time
 from services.skill_testing.state import AgentState
+
+def extract_normalized_error(observation_str: str) -> str:
+    if not observation_str:
+        return "GENERIC_ERROR"
+    
+    try:
+        data = json.loads(observation_str)
+        if isinstance(data, dict):
+            err_text = " ".join([
+                str(data.get("stderr", "")),
+                str(data.get("stdout", "")),
+                str(data.get("message", ""))
+            ]).strip()
+        else:
+            err_text = str(data)
+    except Exception:
+        err_text = observation_str
+
+    if not err_text:
+        return "GENERIC_ERROR"
+
+    # Regex so khớp các Exception/Error phổ biến
+    if re.search(r"NullPointerException", err_text, re.IGNORECASE):
+        return "NullPointerException"
+    
+    if re.search(r"ModuleNotFoundError|ImportError", err_text, re.IGNORECASE):
+        module_match = re.search(r"No module named ['\"]([^'\"]+)['\"]", err_text)
+        if module_match:
+            return f"ModuleNotFoundError: {module_match.group(1)}"
+        return "ModuleNotFoundError"
+        
+    if re.search(r"cannot find symbol", err_text, re.IGNORECASE):
+        symbol_match = re.search(r"symbol:\s+(?:class|method|variable|package)\s+([^\n]+)", err_text)
+        if symbol_match:
+            return f"cannot find symbol: {symbol_match.group(1).strip()}"
+        return "cannot find symbol"
+        
+    if re.search(r"ArithmeticException", err_text, re.IGNORECASE):
+        return "ArithmeticException"
+        
+    if re.search(r"FileNotFoundError", err_text, re.IGNORECASE):
+        return "FileNotFoundError"
+
+    if "FAILED" in err_text or "error" in err_text.lower() or "exception" in err_text.lower() or "fail" in err_text.lower():
+        return "GENERIC_ERROR"
+
+    return "SUCCESS_OR_NO_ERROR"
 
 async def evaluate_node(state: AgentState, model_client, skill_client=None):
     state.step_count += 1
@@ -17,6 +65,22 @@ async def evaluate_node(state: AgentState, model_client, skill_client=None):
 
     current_task = state.plan[state.current_step_idx]
     
+    # 1. Loop Detection chuẩn hóa (TASK_XA)
+    normalized_err = extract_normalized_error(state.last_observation)
+    task_name = current_task or "None"
+    skill_name = state.selected_skill or "None"
+    fingerprint = (task_name, skill_name, normalized_err)
+    
+    state.fingerprint_history.append(fingerprint)
+    
+    if len(state.fingerprint_history) >= 3:
+        if state.fingerprint_history[-1] == state.fingerprint_history[-2] == state.fingerprint_history[-3]:
+            print(f"🚨 [LOOP DETECTED] Phát hiện vòng lặp thực thi 3 lần liên tiếp: {fingerprint}")
+            state.need_replan = True
+            state.is_finished = True
+            state.final_answer = f"TERMINATED: Infinite loop detected. Repeating execution fingerprint 3 times: {fingerprint}"
+            return state
+
     # Sử dụng LLM Evaluator để phân tích cú pháp lỗi và phát hiện thiếu hụt tài nguyên
     system_prompt = f"""
     You are a Quality Assurance Engineer evaluating the task execution.
@@ -28,20 +92,42 @@ async def evaluate_node(state: AgentState, model_client, skill_client=None):
     1. Evaluate if the current task succeeded. If the observation shows the task succeeded or the goal for this step is met, set "is_success" to true.
     2. If the task failed due to a missing file, class, dependency, resource, or library (for example, a compilation error like "cannot find symbol", "package does not exist", "ModuleNotFoundError", "ImportError", or a missing import/class definition), you must set "need_dynamic_intervention" to true.
     3. If "need_dynamic_intervention" is true, provide an intervention plan in the "intervention" field with:
-       - "action": "create_file"
-       - "target_name": the name of the missing resource/file to generate (e.g. "User.java", "Config.py", etc.)
-       - "content": the code/content to create the file or stub class
-       - "task_to_inject": the task description to inject back into the plan to verify the fix (e.g., rerun the current compilation task like "debug-java-null-pointer")
+        - "action": "create_file"
+        - "target_name": the name of the missing resource/file to generate (e.g. "User.java", "Config.py", etc.)
+        - "content": the code/content to create the file or stub class
+        - "task_to_inject": the task description to inject back into the plan to verify the fix (e.g., rerun the current compilation task like "debug-java-null-pointer")
     4. If no intervention is needed, set "need_dynamic_intervention" to false.
     5. Output ONLY a valid JSON object matching this schema, no markdown blocks, no extra text.
     """
     
+    start_time = time.time()
     response = await model_client.call(system_prompt, "Evaluate the result.")
+    latency_ms = int((time.time() - start_time) * 1000)
     
-    # Sync token usage
+    # Sync và log tokens/latency (TASK_1B / Phase 2)
+    usage = getattr(model_client, "last_call_usage", None) or {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "model": "gpt-4o-mini",
+        "cost": 0.0
+    }
+    
+    history_entry = {
+        "node": "evaluate_node",
+        "prompt_tokens": usage.get("prompt_tokens", 0),
+        "completion_tokens": usage.get("completion_tokens", 0),
+        "total_tokens": usage.get("total_tokens", 0),
+        "latency_ms": latency_ms,
+        "model": usage.get("model", "gpt-4o-mini")
+    }
+    state.execution_history.append(history_entry)
+    
+    # Sync token usage và cộng cost vào state
     state.prompt_tokens = getattr(model_client, "total_prompt_tokens", 0)
     state.completion_tokens = getattr(model_client, "total_completion_tokens", 0)
     state.total_tokens = state.prompt_tokens + state.completion_tokens
+    state.total_cost += usage.get("cost", 0.0)
 
     try:
         # Loại bỏ định dạng markdown nếu có
