@@ -1,11 +1,11 @@
 import datetime
 import json
-from backend.services.skill_testing.core.plan_node import plan_node
-from backend.services.skill_testing.core.select_skill_node import select_skill_node
-from backend.services.skill_testing.state import AgentState
-from backend.services.skill_testing.core.registry import semantic_registry
-from backend.services.skill_testing.unit_tests.mock_client import MockModelClient
-from backend.shared.schemas import SkillRead
+from services.skill_testing.core.plan_node import plan_node
+from services.skill_testing.core.select_skill_node import select_skill_node
+from services.skill_testing.state import AgentState
+from services.skill_testing.core.registry import semantic_registry
+from services.skill_testing.unit_tests.mock_client import MockModelClient
+from shared.schemas import SkillRead
 
 def test_nodes_workflow():
     # --- BƯỚC 1: GIẢ LẬP DỮ LIỆU SKILL ---
