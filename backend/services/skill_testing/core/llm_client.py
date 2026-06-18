@@ -30,6 +30,8 @@ class OpenAIClient:
     def __init__(self, api_key: str):
         self.api_key = api_key
         self.url = "https://api.openai.com/v1/chat/completions"
+        self.total_prompt_tokens = 0
+        self.total_completion_tokens = 0
 
     async def call(self, system_prompt: str, user_prompt: str, model: str = "gpt-4o-mini") -> str:
         headers = {
@@ -51,4 +53,11 @@ class OpenAIClient:
             if response.status_code != 200:
                 raise Exception(f"LLM Error: {response.text}")
             result = response.json()
+            
+            # Extract and accumulate token usage
+            usage = result.get("usage", {})
+            if usage:
+                self.total_prompt_tokens += usage.get("prompt_tokens", 0)
+                self.total_completion_tokens += usage.get("completion_tokens", 0)
+                
             return result['choices'][0]['message']['content']

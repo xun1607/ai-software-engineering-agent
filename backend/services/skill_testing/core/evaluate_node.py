@@ -17,71 +17,107 @@ async def evaluate_node(state: AgentState, model_client, skill_client=None):
 
     current_task = state.plan[state.current_step_idx]
     
-    # --- [TASK 5] Error-driven Stub Generation ---
-    # Khi nhận diện last_observation chứa từ khóa "error: cannot find symbol: class User", không được crash hệ thống.
-    if state.last_observation and "error: cannot find symbol: class User" in state.last_observation:
-        print("⚠️ [ERROR-DRIVEN STUB GENERATION] Detected missing class User in compilation output. Generating stub...")
-        
-        # Bẻ luồng ép LLM sinh ra nội dung file giữ chỗ (User.java rỗng)
-        system_prompt = "You are a Java Stub Code Generator."
-        user_prompt = (
-            "The compiler failed because 'class User' is missing. "
-            "Please generate a minimal Java class definition for 'User' (e.g. package declarations if any, public class User with empty constructor or minimal stub methods like getName() returning String or empty string). "
-            "Output ONLY the Java code, no markdown block syntax, no extra text."
-        )
-        
-        try:
-            stub_code = await model_client.call(system_prompt, user_prompt)
-            # Remove any markdown format code block if present
-            if "```" in stub_code:
-                code_match = re.search(r"```(?:java)?\s*(.*?)\s*```", stub_code, re.DOTALL)
-                if code_match:
-                    stub_code = code_match.group(1)
-            stub_code = stub_code.strip()
-        except Exception as e:
-            print(f"❌ LLM call failed for Stub Generation: {e}. Falling back to default stub.")
-            stub_code = "public class User {\n    public String getName() { return \"\"; }\n}"
-            
-        # Điều hướng skill_client ghi file vật lý xuống ổ cứng workspace/ cạnh file cũ
-        if skill_client:
-            skill_client.setup_initial_workspace(stub_code, "User.java")
-            print("💾 [STUB GENERATOR] Wrote stub User.java using skill_client.")
-        else:
-            # Fallback direct file write
-            fallback_dir = os.path.abspath(
-                os.path.join(os.path.dirname(__file__), "..", "..", "..", "workspace", "src", "main", "java")
-            )
-            os.makedirs(fallback_dir, exist_ok=True)
-            with open(os.path.join(fallback_dir, "User.java"), "w", encoding="utf-8") as f:
-                f.write(stub_code)
-            print("💾 [STUB GENERATOR] Wrote stub User.java directly.")
-            
-        # Thiết lập để chạy lại biên dịch ở bước tiếp theo mà không crash
-        state.retry_count = 1
-        state.reflection.append("🔄 Stub User.java generated due to missing class compilation error. Retrying compiler.")
-        state.last_observation = "Stub User.java created. Retrying compiler step."
-        return state
-
+    # Sử dụng LLM Evaluator để phân tích cú pháp lỗi và phát hiện thiếu hụt tài nguyên
     system_prompt = f"""
-    You are a Quality Assurance Engineer. Evaluate if the task was completed successfully based on the observation.
-    GOAL: {state.goal or state.user_context['message']}
+    You are a Quality Assurance Engineer evaluating the task execution.
+    GOAL: {state.goal or state.user_context.get('message', 'Fix the bug')}
     CURRENT TASK: {current_task}
     OBSERVATION: {state.last_observation}
+    
     INSTRUCTIONS:
-    - If the observation shows the task succeeded or the goal for this step is met, return {{"is_success": true, "analysis": "..."}}
-    - If it failed, timed out, or returned an error, return {{"is_success": false, "analysis": "..."}}
-    - Output ONLY JSON.
+    1. Evaluate if the current task succeeded. If the observation shows the task succeeded or the goal for this step is met, set "is_success" to true.
+    2. If the task failed due to a missing file, class, dependency, resource, or library (for example, a compilation error like "cannot find symbol", "package does not exist", "ModuleNotFoundError", "ImportError", or a missing import/class definition), you must set "need_dynamic_intervention" to true.
+    3. If "need_dynamic_intervention" is true, provide an intervention plan in the "intervention" field with:
+       - "action": "create_file"
+       - "target_name": the name of the missing resource/file to generate (e.g. "User.java", "Config.py", etc.)
+       - "content": the code/content to create the file or stub class
+       - "task_to_inject": the task description to inject back into the plan to verify the fix (e.g., rerun the current compilation task like "debug-java-null-pointer")
+    4. If no intervention is needed, set "need_dynamic_intervention" to false.
+    5. Output ONLY a valid JSON object matching this schema, no markdown blocks, no extra text.
     """
+    
     response = await model_client.call(system_prompt, "Evaluate the result.")
+    
+    # Sync token usage
+    state.prompt_tokens = getattr(model_client, "total_prompt_tokens", 0)
+    state.completion_tokens = getattr(model_client, "total_completion_tokens", 0)
+    state.total_tokens = state.prompt_tokens + state.completion_tokens
+
     try:
-        evaluation = json.loads(response)
+        # Loại bỏ định dạng markdown nếu có
+        cleaned_response = response.strip()
+        if "```" in cleaned_response:
+            code_match = re.search(r"```(?:json)?\s*(.*?)\s*```", cleaned_response, re.DOTALL | re.IGNORECASE)
+            if code_match:
+                cleaned_response = code_match.group(1).strip()
+                
+        evaluation = json.loads(cleaned_response)
         is_success = evaluation.get("is_success", False)
         analysis = evaluation.get("analysis", "No analysis provided.")
+        need_dynamic_intervention = evaluation.get("need_dynamic_intervention", False)
+        intervention = evaluation.get("intervention", {})
     except Exception as e:
         is_success = False 
         analysis = f"Failed to parse evaluation JSON: {str(e)}"
+        need_dynamic_intervention = False
+        intervention = {}
 
-    
+    # Thực hiện Can thiệp động (Dynamic Intervention)
+    if need_dynamic_intervention and intervention:
+        action = intervention.get("action")
+        target_name = intervention.get("target_name")
+        content = intervention.get("content", "")
+        task_to_inject = intervention.get("task_to_inject")
+
+        print(f"⚠️ [DYNAMIC INTERVENTION] Triggered action '{action}' for '{target_name}'")
+        
+        if action == "create_file" and target_name:
+            if skill_client:
+                # TỰ ĐỘNG PHÂN ĐỊNH ĐƯỜNG DẪN THEO NGÔN NGỮ trong client
+                skill_client.setup_initial_workspace(content, target_name)
+            else:
+                fallback_dir = os.path.abspath(
+                    os.path.join(os.path.dirname(__file__), "..", "..", "..", "workspace")
+                )
+                if target_name.endswith(".java"):
+                    fallback_dir = os.path.join(fallback_dir, "src", "main", "java")
+                os.makedirs(fallback_dir, exist_ok=True)
+                file_path = os.path.join(fallback_dir, target_name)
+                with open(file_path, "w", encoding="utf-8") as f:
+                    f.write(content)
+            print(f"💾 [DYNAMIC INTERVENTION] Created file vật lý: {target_name}")
+        else:
+            # Ghi đè trực tiếp fallback an toàn
+            fallback_dir = os.path.abspath(
+                os.path.join(os.path.dirname(__file__), "..", "..", "..", "workspace")
+            )
+            if target_name.endswith(".java"):
+                fallback_dir = os.path.join(fallback_dir, "src", "main", "java")
+                
+            os.makedirs(fallback_dir, exist_ok=True)
+            with open(os.path.join(fallback_dir, target_name), "w", encoding="utf-8") as f:
+                f.write(content)
+            print(f"💾 [DYNAMIC INTERVENTION] Wrote file directly to fallback path: {target_name}")
+
+        if task_to_inject:
+            current_task = state.plan[state.current_step_idx] if state.current_step_idx < len(state.plan) else None
+            next_task = state.plan[state.current_step_idx + 1] if state.current_step_idx + 1 < len(state.plan) else None
+            
+            if task_to_inject == current_task or task_to_inject == next_task:
+                print(f"⏭️ [TASK INJECTION PREVENTED] Task '{task_to_inject}' is already at current/next position. No duplication needed.")
+            else:
+                state.plan.insert(state.current_step_idx, task_to_inject)
+                print(f"💉 [TASK INJECTION] Injected task '{task_to_inject}' at index {state.current_step_idx}")
+
+        state.retry_count = 0  # Đặt về 0 để bộ định tuyến route_decision đưa đồ thị đi qua select_skill_node chọn kỹ năng mới
+        state.reflection.append(f"🔄 Dynamic intervention: Created {target_name}. Injected task {task_to_inject}.")
+        state.last_observation = json.dumps({
+            "status": "SUCCESS", 
+            "message": f"Intervention completed: {target_name} created.", 
+            "stdout": f"Created {target_name} successfully."
+        })
+        return state
+
     if is_success:
         state.retry_count = 0 
         state.reflection.append(f"✅ Step {state.current_step_idx + 1} Success: {analysis}")

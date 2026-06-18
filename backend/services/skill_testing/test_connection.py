@@ -1,8 +1,7 @@
-# test_connection.py
+# Kiểm tra kết nối gọi API tới skill-management
 import asyncio
 import httpx
 
-# Sửa lại URL này cho đúng với địa chỉ và Port mà service AG1 của bạn mình đang chạy
 AG1_BASE_URL = "http://127.0.0.1:8001" 
 SKILLS_ENDPOINT = f"{AG1_BASE_URL}/skills"
 

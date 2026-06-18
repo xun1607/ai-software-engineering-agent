@@ -94,16 +94,16 @@ async def execute_node(state: AgentState, model_client, skill_client):
 
     # 2. Thiết lập Prompt tối giản giúp LLM tự định hình tham số dựa theo Tên kỹ năng
     system_prompt = f"""
-    You are a Software Engineering Parameter Extractor for the skill: '{skill_name}'.
-    Your job is to look at the user's code context, error log, and request to extract the precise arguments required to run this skill.
+    You are a Software Engineering Parameter Extractor and Code Generator for the skill: '{skill_name}'.
+    Your job is to look at the user's code context, error log, and request to extract/generate the precise arguments required to run this skill.
     
     EXPECTED ARGUMENTS LOGIC BASED ON SKILL NAME:
-    - If skill is 'analyze-stacktrace' or 'debug-java-null-pointer': extract 'stacktrace' and 'source_path'.
+    - If skill is 'analyze-stacktrace' or 'debug-java-null-pointer': extract 'stacktrace' and 'file' (or 'source_path').
     - If skill is 'read-code-context': extract 'file' and 'line' (as integer).
-    - If skill is 'suggest-java-fix': extract 'file', 'line' (as integer), and 'variable'.
+    - If skill is 'suggest-java-fix' or 'suggest-python-fix': extract 'file' (the name of the file being fixed) and generate the ENTIRE completely patched source code file, returning it inside the 'patched_code' field. You MUST return the FULL completed source code. DO NOT use comments like '// ... rest of code' or placeholders. If you do, the workspace compilation will fail.
     
     INSTRUCTIONS:
-    1. Generate a flat JSON object containing only the key-value pairs of extracted parameters.
+    1. Generate a flat JSON object containing only the key-value pairs of extracted/generated parameters.
     2. Do NOT add any extra conversational text. Output ONLY valid JSON.
     """
     
@@ -117,6 +117,11 @@ async def execute_node(state: AgentState, model_client, skill_client):
     # Gọi LLM xử lý bóc tách tham số
     arg_response = await model_client.call(system_prompt, user_prompt)
     
+    # Sync token usage
+    state.prompt_tokens = getattr(model_client, "total_prompt_tokens", 0)
+    state.completion_tokens = getattr(model_client, "total_completion_tokens", 0)
+    state.total_tokens = state.prompt_tokens + state.completion_tokens
+
     try:
         # Giải mã tham số cấu trúc JSON
         args = json.loads(arg_response)

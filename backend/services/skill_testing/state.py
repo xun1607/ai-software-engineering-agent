@@ -31,3 +31,8 @@ class AgentState(BaseModel):
     max_total_steps: int = 12
     step_count: int = 0
     
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+
+    
