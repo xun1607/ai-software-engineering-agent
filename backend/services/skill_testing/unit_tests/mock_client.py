@@ -15,7 +15,7 @@ class MockModelClient:
     def __init__(self, responses: dict):
         self.responses = responses
 
-    def call(self, system_prompt, user_prompt):
+    async def call(self, system_prompt, user_prompt):
         # Trả về kết quả dựa trên từ khóa xuất hiện trong prompt
         if "Parameter Extractor" in system_prompt:
             return self.responses.get("extract_args", "{}")
