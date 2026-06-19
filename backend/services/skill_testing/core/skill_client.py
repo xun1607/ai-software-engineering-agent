@@ -40,11 +40,10 @@ class SkillExecutionClient:
         if name_clean == "analyze_stacktrace":
             raw_stacktrace = args.get("stacktrace", "")
             
-            # 1. Parse Python stacktrace (e.g. File "data_sync.py", line 4)
             py_match = re.search(r'File\s+["\']([^"\']+)["\'],\s*line\s*(\d+)', raw_stacktrace)
-            # 2. Parse Java stacktrace (e.g. at CalculatorService.divide(CalculatorService.java:3) or at Customer.getEmail(Customer.java:12))
+          
             java_match = re.search(r'at\s+[\w\.]+\([\w\-]+\.java:(\d+)\)', raw_stacktrace)
-            # Find any .java file mentioned
+
             java_file_match = re.search(r'([\w\-]+\.java)', raw_stacktrace)
             
             parsed_file = None

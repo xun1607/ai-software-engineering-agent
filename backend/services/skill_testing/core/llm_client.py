@@ -32,6 +32,7 @@ class OpenAIClient:
         self.url = "https://api.openai.com/v1/chat/completions"
         self.total_prompt_tokens = 0
         self.total_completion_tokens = 0
+        self.last_call_usage = None
 
     async def call(self, system_prompt: str, user_prompt: str, model: str = "gpt-4o-mini") -> str:
         headers = {
@@ -56,8 +57,21 @@ class OpenAIClient:
             
             # Extract and accumulate token usage
             usage = result.get("usage", {})
-            if usage:
-                self.total_prompt_tokens += usage.get("prompt_tokens", 0)
-                self.total_completion_tokens += usage.get("completion_tokens", 0)
+            prompt_tokens = usage.get("prompt_tokens", 0)
+            completion_tokens = usage.get("completion_tokens", 0)
+            
+            self.total_prompt_tokens += prompt_tokens
+            self.total_completion_tokens += completion_tokens
+            
+            # Cost estimation: gpt-4o-mini rates
+            cost = (prompt_tokens * 0.15 + completion_tokens * 0.60) / 1000000.0
+            
+            self.last_call_usage = {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": prompt_tokens + completion_tokens,
+                "model": model,
+                "cost": cost
+            }
                 
             return result['choices'][0]['message']['content']

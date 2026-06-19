@@ -1,4 +1,4 @@
-from typing import TypedDict, Annotated, List, Optional, Any, Dict
+from typing import TypedDict, Annotated, List, Optional, Any, Dict, Tuple
 import operator
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -27,6 +27,7 @@ class AgentState(BaseModel):
     # exception
     replan_count: int = 0
     max_replans: int = 3
+    need_replan: bool = False
     
     max_total_steps: int = 12
     step_count: int = 0
@@ -34,5 +35,10 @@ class AgentState(BaseModel):
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
+    total_cost: float = 0.0
+    
+    fingerprint_history: List[Tuple[str, str, str]] = Field(default_factory=list)
+    task_status: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
+    execution_history: List[Dict[str, Any]] = Field(default_factory=list)
 
     

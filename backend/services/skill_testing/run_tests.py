@@ -3,7 +3,7 @@ import json
 import os
 import time
 import glob
-from services.skill_testing.test_pipeline import run_pipeline
+from services.skill_testing.orchestrator import run_pipeline
 from services.skill_testing.core.skill_client import SkillExecutionClient
 
 async def main():
@@ -71,13 +71,65 @@ async def main():
                 final_answer = getattr(final_state, "final_answer", "")
                 step_count = getattr(final_state, "step_count", 0)
                 
-            # Đánh giá kết quả Pass / Fail
+            # Đánh giá kết quả Pass / Fail bằng xác thực vật lý cứng (expected_output)
             passed = False
+            expected_out = tc.get("expected_output", "")
             target_file_path = os.path.join(java_src_dir if filename.endswith(".java") else workspace_dir, filename)
-            if is_finished and "SUCCESS" in final_answer:
-                passed = True
-            elif os.path.exists(target_file_path) and os.path.getsize(target_file_path) > 0:
-                passed = True
+            
+            if os.path.exists(target_file_path) and os.path.getsize(target_file_path) > 0:
+                if expected_out == "compilation_success" and filename.endswith(".java"):
+                    import subprocess
+                    # Compile all java files under src/main/java to resolve dependencies like Customer.java
+                    java_files = glob.glob(os.path.join(client.java_src_dir, "*.java"))
+                    rel_paths = [os.path.relpath(p, client.workspace_dir) for p in java_files]
+                    comp_res = subprocess.run(
+                        ["javac"] + rel_paths,
+                        cwd=client.workspace_dir,
+                        capture_output=True,
+                        text=True
+                    )
+                    if comp_res.returncode == 0:
+                        passed = True
+                        print(f"🎯 [XÁC THỰC VẬT LÝ] {tc_id}: Biên dịch javac thành công! Testcase PASSED.")
+                    else:
+                        print(f"❌ [XÁC THỰC VẬT LÝ] {tc_id}: Biên dịch javac thất bại (returncode={comp_res.returncode}). Testcase FAILED.")
+                elif expected_out == "execution_success":
+                    import subprocess
+                    import sys
+                    python_exe = os.path.join(os.path.dirname(client.workspace_dir), "venv", "Scripts", "python.exe")
+                    if not os.path.exists(python_exe):
+                        python_exe = sys.executable
+                    
+                    if filename.endswith(".py"):
+                        exec_cmd = [python_exe, filename]
+                        exec_res = subprocess.run(
+                            exec_cmd,
+                            cwd=client.workspace_dir,
+                            capture_output=True,
+                            text=True
+                        )
+                        if exec_res.returncode == 0:
+                            passed = True
+                            print(f"🎯 [XÁC THỰC VẬT LÝ] {tc_id}: Chạy thử vật lý thành công (returncode=0)! Testcase PASSED.")
+                        else:
+                            print(f"❌ [XÁC THỰC VẬT LÝ] {tc_id}: Chạy thử vật lý thất bại (returncode={exec_res.returncode}). Testcase FAILED.")
+                    else:
+                        # CalculatorService.java does not have a main method, so we verify its correctness by compiling it
+                        rel_path = os.path.relpath(target_file_path, client.workspace_dir)
+                        comp_res = subprocess.run(
+                            ["javac", rel_path],
+                            cwd=client.workspace_dir,
+                            capture_output=True,
+                            text=True
+                        )
+                        if comp_res.returncode == 0:
+                            passed = True
+                            print(f"🎯 [XÁC THỰC VẬT LÝ] {tc_id}: Biên dịch javac CalculatorService thành công! Testcase PASSED.")
+                        else:
+                            print(f"❌ [XÁC THỰC VẬT LÝ] {tc_id}: Biên dịch javac CalculatorService thất bại! Testcase FAILED.")
+                else:
+                    if is_finished and "SUCCESS" in final_answer:
+                        passed = True
             
             results.append({
                 "id": tc_id,

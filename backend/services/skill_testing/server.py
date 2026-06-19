@@ -8,7 +8,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Dict, Any, List
 
-from services.skill_testing.test_pipeline import (
+from services.skill_testing.orchestrator import (
     api_key,
     get_compiled_workflow,
     semantic_registry
@@ -18,7 +18,7 @@ from services.skill_testing.core.llm_client import OpenAIClient
 
 app = FastAPI(title="AG2 Orchestrator Server", version="1.0.0")
 
-# Cấu hình CORSMiddleware đầy đủ để kết nối với Frontend
+# Cấu hình CORSMiddleware kết nối với Frontend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -84,7 +84,7 @@ async def orchestrate_stream(payload: OrchestratePayload, request: Request):
     else:
         print("⚡ [REGISTRY] Bỏ qua xây dựng index vector vì Registry đã được lập chỉ mục trước đó.")
     
-    # Khởi tạo client vật lý và thiết lập không gian workspace
+
     skill_client = SkillExecutionClient()
     skill_client.setup_initial_workspace(payload.code_content, payload.filename)
     
@@ -145,7 +145,7 @@ async def run_test_suite(request: Request):
     async def event_generator():
         import glob
         import time
-        from services.skill_testing.test_pipeline import run_pipeline
+        from services.skill_testing.orchestrator import run_pipeline
 
         testcases_path = os.path.join(os.path.dirname(__file__), "testcases.json")
         if not os.path.exists(testcases_path):
@@ -246,11 +246,61 @@ async def run_test_suite(request: Request):
                     step_count = running_state.get("step_count", 0)
 
                     passed = False
+                    expected_out = tc.get("expected_output", "")
                     target_file_path = os.path.join(java_src_dir if filename.endswith(".java") else workspace_dir, filename)
-                    if is_finished and "SUCCESS" in final_answer:
-                        passed = True
-                    elif os.path.exists(target_file_path) and os.path.getsize(target_file_path) > 0:
-                        passed = True
+                    
+                    if os.path.exists(target_file_path) and os.path.getsize(target_file_path) > 0:
+                        if expected_out == "compilation_success" and filename.endswith(".java"):
+                            import subprocess
+                            java_files = glob.glob(os.path.join(client.java_src_dir, "*.java"))
+                            rel_paths = [os.path.relpath(p, client.workspace_dir) for p in java_files]
+                            comp_res = subprocess.run(
+                                ["javac"] + rel_paths,
+                                cwd=client.workspace_dir,
+                                capture_output=True,
+                                text=True
+                            )
+                            if comp_res.returncode == 0:
+                                passed = True
+                                print(f"🎯 [API XÁC THỰC VẬT LÝ] {tc_id}: Biên dịch javac thành công!")
+                            else:
+                                print(f"❌ [API XÁC THỰC VẬT LÝ] {tc_id}: Biên dịch javac thất bại!")
+                        elif expected_out == "execution_success":
+                            import subprocess
+                            import sys
+                            python_exe = os.path.join(os.path.dirname(client.workspace_dir), "venv", "Scripts", "python.exe")
+                            if not os.path.exists(python_exe):
+                                python_exe = sys.executable
+                            
+                            if filename.endswith(".py"):
+                                exec_cmd = [python_exe, filename]
+                                exec_res = subprocess.run(
+                                    exec_cmd,
+                                    cwd=client.workspace_dir,
+                                    capture_output=True,
+                                    text=True
+                                )
+                                if exec_res.returncode == 0:
+                                    passed = True
+                                    print(f"🎯 [API XÁC THỰC VẬT LÝ] {tc_id}: Chạy thử vật lý thành công!")
+                                else:
+                                    print(f"❌ [API XÁC THỰC VẬT LÝ] {tc_id}: Chạy thử vật lý thất bại!")
+                            else:
+                                rel_path = os.path.relpath(target_file_path, client.workspace_dir)
+                                comp_res = subprocess.run(
+                                    ["javac", rel_path],
+                                    cwd=client.workspace_dir,
+                                    capture_output=True,
+                                    text=True
+                                )
+                                if comp_res.returncode == 0:
+                                    passed = True
+                                    print(f"🎯 [API XÁC THỰC VẬT LÝ] {tc_id}: Biên dịch javac CalculatorService thành công!")
+                                else:
+                                    print(f"❌ [API XÁC THỰC VẬT LÝ] {tc_id}: Biên dịch javac CalculatorService thất bại!")
+                        else:
+                            if is_finished and "SUCCESS" in final_answer:
+                                passed = True
 
                     results.append({
                         "id": tc_id,

@@ -31,7 +31,7 @@ async def execute_node(state: AgentState, model_client, skill_client):
     Your job is to look at the user's code context, error log, and request to generate the arguments matching the JSON schemas below.
     
     INPUT SCHEMA:
-    {json.dumps(input_schema, ensure_ascii=False, indent=2)}
+    {json.dumps(input_schema or {"patched_code": {"type": "string", "description": "The complete patched source code content. MUST contain the full code, enclosing class, imports, methods, etc."}, "file": {"type": "string"}}, ensure_ascii=False, indent=2)}
     
     OUTPUT SCHEMA:
     {json.dumps(output_schema, ensure_ascii=False, indent=2)}
@@ -42,7 +42,7 @@ async def execute_node(state: AgentState, model_client, skill_client):
     - If skill is 'suggest-java-fix' or 'suggest-python-fix': extract 'file' (the name of the file being fixed) and generate the ENTIRE completely patched source code file, returning it inside the 'patched_code' field. You MUST return the FULL completed source code. DO NOT use comments like '// ... rest of code' or placeholders. If you do, the workspace compilation will fail.
     
     INSTRUCTIONS:
-    1. Generate a flat JSON object containing only the key-value pairs of extracted/generated parameters matching the Input Schema.
+    1. Generate a flat JSON object containing only the key-value pairs of extracted/generated parameters matching the Input Schema (specifically generate the 'patched_code' field for code fixes).
     2. Do NOT add any extra conversational text. Output ONLY valid JSON.
     """
     

@@ -3,22 +3,24 @@
     "id": "TC_03_JavaMissingMethodStub",
     "filename": "OrderProcessor.java",
     "code_content": "class Customer {\n    public String getName() { return \"An\"; }\n    // Thiếu hàm getEmail() nhưng code Processor vẫn gọi\n}\n\npublic class OrderProcessor {\n    public void notifyCustomer(Customer customer) {\n        String email = customer.getEmail();\n    }\n}",
-    "stacktrace": "error: cannot find symbol\n  symbol:   method getEmail()\n  location: class Customer",
-    "message": "Kiểm tra khả năng phân tích lỗi cục bộ, sửa đổi và chèn thêm phương thức bị thiếu vào class nội bộ"
+    "stacktrace": "OrderProcessor.java:8: error: cannot find symbol\n  symbol:   method getEmail()\n  location: class Customer",
+    "message": "Kiểm tra khả năng phân tích lỗi cục bộ, sửa đổi và chèn thêm phương thức bị thiếu vào class nội bộ",
+    "expected_output": "compilation_success"
   },
   {
     "id": "TC_04_PythonModuleNotFoundError",
     "filename": "data_sync.py",
     "code_content": "import requests\n\ndef fetch_data():\n    response = requests.get('https://api.example.com')\n    return response.json()",
     "stacktrace": "ModuleNotFoundError: No module named 'requests'",
-    "message": "Thử nghiệm tính đa hình ngôn ngữ (Polyglot) trên file Python khi môi trường runtime vật lý báo thiếu thư viện gói."
+    "message": "Thử nghiệm tính đa hình ngôn ngữ (Polyglot) trên file Python khi môi trường runtime vật lý báo thiếu thư viện gói.",
+    "expected_output": "execution_success"
   },
   {
     "id": "TC_05_ComplexRegressionLoop",
     "filename": "CalculatorService.java",
     "code_content": "public class CalculatorService {\n    public int divide(int a, int b) {\n        return a / b;\n    }\n}",
     "stacktrace": "ArithmeticException: / by zero at CalculatorService.divide",
-    "message": "Kịch bản lỗi logic Runtime. Thử nghiệm thuật toán rẽ nhánh xử lý bẫy lỗi chia cho 0 và kiểm tra giới hạn Circuit Breaker."
+    "message": "Kịch bản lỗi logic Runtime. Thử nghiệm thuật toán rẽ nhánh xử lý bẫy lỗi chia cho 0 và kiểm tra giới hạn Circuit Breaker.",
+    "expected_output": "execution_success"
   }
 ]
-

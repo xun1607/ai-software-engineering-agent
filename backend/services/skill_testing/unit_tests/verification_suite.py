@@ -16,7 +16,7 @@ from services.skill_testing.core.plan_node import plan_node
 from services.skill_testing.core.select_skill_node import select_skill_node
 from services.skill_testing.core.execute_node import execute_node
 from services.skill_testing.core.evaluate_node import evaluate_node
-from services.skill_testing.test_pipeline import get_compiled_workflow
+from services.skill_testing.orchestrator import get_compiled_workflow
 from shared.schemas import SkillRead
 
 # Custom Mock LLM Client
