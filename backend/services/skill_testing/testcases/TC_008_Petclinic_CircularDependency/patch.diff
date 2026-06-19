@@ -1,0 +1,10 @@
+diff --git a/src/main/java/org/springframework/samples/petclinic/owner/OwnerController.java b/src/main/java/org/springframework/samples/petclinic/owner/OwnerController.java
+--- a/src/main/java/org/springframework/samples/petclinic/owner/OwnerController.java
++++ b/src/main/java/org/springframework/samples/petclinic/owner/OwnerController.java
+@@ -52,5 +52,3 @@
+-	private PetController petController;
+-	public OwnerController(OwnerRepository clinicService, PetController petController) {
++	public OwnerController(OwnerRepository clinicService) {
+ 		this.owners = clinicService;
+-		this.petController = petController;
+ 	}

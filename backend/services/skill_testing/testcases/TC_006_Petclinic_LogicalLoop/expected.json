@@ -1,0 +1,34 @@
+{
+  "validation_targets": {
+    "verify_compilation": true,
+    "verify_tests": true,
+    "verify_patch": true
+  },
+  "compilation_assertion": {
+    "command": [
+      "mvnw.cmd",
+      "clean",
+      "compile"
+    ],
+    "expected_exit_code": 0
+  },
+  "test_assertion": {
+    "command": [
+      "mvnw.cmd",
+      "test",
+      "-Dtest=OwnerTests"
+    ],
+    "expected_exit_code": 0
+  },
+  "patch_assertion": {
+    "modified_files": [
+      "src/main/java/org/springframework/samples/petclinic/owner/Owner.java"
+    ],
+    "prohibited_patterns": [
+      "getPets()"
+    ],
+    "required_patterns": [
+      "return this.pets;"
+    ]
+  }
+}

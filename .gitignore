@@ -38,6 +38,7 @@ Thumbs.db
 # =========================
 node_modules/
 **/node_modules/
+frontend/node_modules/
 
 # Build outputs
 dist/
@@ -67,3 +68,5 @@ cache/
 # Chặn sản phẩm biên dịch vật lý của Java Runtime (TASK 4 hiện trường)
 backend/workspace/src/main/java/*.class
 backend/workspace/src/main/java/LoginService
+backend/services/skill_testing/benchmark_repos/
+backend/services/skill_testing/workspace_temp/

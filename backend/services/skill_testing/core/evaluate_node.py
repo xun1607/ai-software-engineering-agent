@@ -158,14 +158,23 @@ async def evaluate_node(state: AgentState, model_client, skill_client=None):
         print(f"⚠️ [DYNAMIC INTERVENTION] Triggered action '{action}' for '{target_name}'")
         
         if action == "create_file" and target_name:
+            entry_file = state.user_context.get("filename", "")
             if skill_client:
-                # TỰ ĐỘNG PHÂN ĐỊNH ĐƯỜNG DẪN THEO NGÔN NGỮ trong client
-                skill_client.setup_initial_workspace(content, target_name)
+                if entry_file and ("/" in entry_file or "\\" in entry_file):
+                    dest_dir = os.path.join(skill_client.workspace_dir, os.path.dirname(entry_file))
+                    os.makedirs(dest_dir, exist_ok=True)
+                    file_path = os.path.join(dest_dir, target_name)
+                    with open(file_path, "w", encoding="utf-8") as f:
+                        f.write(content)
+                else:
+                    skill_client.setup_initial_workspace(content, target_name)
             else:
                 fallback_dir = os.path.abspath(
                     os.path.join(os.path.dirname(__file__), "..", "..", "..", "workspace")
                 )
-                if target_name.endswith(".java"):
+                if entry_file and ("/" in entry_file or "\\" in entry_file):
+                    fallback_dir = os.path.join(fallback_dir, os.path.dirname(entry_file))
+                elif target_name.endswith(".java"):
                     fallback_dir = os.path.join(fallback_dir, "src", "main", "java")
                 os.makedirs(fallback_dir, exist_ok=True)
                 file_path = os.path.join(fallback_dir, target_name)
@@ -177,7 +186,10 @@ async def evaluate_node(state: AgentState, model_client, skill_client=None):
             fallback_dir = os.path.abspath(
                 os.path.join(os.path.dirname(__file__), "..", "..", "..", "workspace")
             )
-            if target_name.endswith(".java"):
+            entry_file = state.user_context.get("filename", "")
+            if entry_file and ("/" in entry_file or "\\" in entry_file):
+                fallback_dir = os.path.join(fallback_dir, os.path.dirname(entry_file))
+            elif target_name.endswith(".java"):
                 fallback_dir = os.path.join(fallback_dir, "src", "main", "java")
                 
             os.makedirs(fallback_dir, exist_ok=True)

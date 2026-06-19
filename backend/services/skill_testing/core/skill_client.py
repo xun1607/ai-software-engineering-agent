@@ -18,6 +18,15 @@ class SkillExecutionClient:
         os.makedirs(self.workspace_dir, exist_ok=True)
         self.java_src_dir = os.path.join(self.workspace_dir, "src", "main", "java")
         os.makedirs(self.java_src_dir, exist_ok=True)
+
+    def get_file_path(self, filename: str) -> str:
+        if not filename:
+            return ""
+        if "src/main/java" in filename or filename.startswith("/") or ":" in filename or filename.startswith("."):
+            return os.path.join(self.workspace_dir, filename)
+        if filename.endswith(".java"):
+            return os.path.join(self.java_src_dir, filename)
+        return os.path.join(self.workspace_dir, filename)
         
     def setup_initial_workspace(self, code_content: str, filename: str = "LoginService.java") -> str:
         """Ghi đoạn code lỗi do người dùng paste vào thành file Java hoặc Python trên ổ cứng"""
@@ -96,7 +105,7 @@ class SkillExecutionClient:
                     filename = "LoginService.java"
                     
             target_line = int(args.get("line", 1))
-            file_path = os.path.join(self.java_src_dir if filename.endswith(".java") else self.workspace_dir, filename)
+            file_path = self.get_file_path(filename)
             try:
                 with open(file_path, "r", encoding="utf-8") as f:
                     lines = f.readlines()
@@ -123,7 +132,7 @@ class SkillExecutionClient:
                     filename = "LoginService.java"
                     
             patched_code = args.get("patched_code") or args.get("code_context") or args.get("code_snippet")
-            file_path = os.path.join(self.java_src_dir, filename)
+            file_path = self.get_file_path(filename)
             
             if not patched_code:
                 return {"status": "FAILED", "stdout": "Missing patched_code parameter."}
@@ -150,7 +159,7 @@ class SkillExecutionClient:
                 else:
                     filename = "LoginService.java"
                     
-            file_path = os.path.join(self.java_src_dir, filename)
+            file_path = self.get_file_path(filename)
             rel_file_path = os.path.relpath(file_path, self.workspace_dir)
             try:
                 import subprocess

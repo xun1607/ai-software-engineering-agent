@@ -27,7 +27,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 1. Cơ chế Caching thông minh (Global Cache) cho danh sách Skills
+# Giữ danh sách Skills tải từ API vào cache
 _SKILL_CACHE = {"tools": None}
 
 async def get_cached_skills() -> List[Dict[str, Any]]:
@@ -64,7 +64,6 @@ async def get_cached_skills() -> List[Dict[str, Any]]:
     return mock_tools
 
 
-# 2. Định nghĩa Pydantic BaseModel cho Payload đầu vào
 class OrchestratePayload(BaseModel):
     code_content: str
     filename: str
@@ -182,7 +181,7 @@ async def run_test_suite(request: Request):
                 # Gửi sự kiện RUNNING đầu tiên
                 yield f"data: {json.dumps({'status': 'RUNNING', 'id': tc_id, 'message': 'Đang chuẩn bị môi trường...'}, ensure_ascii=False)}\n\n"
 
-                # Dọn dẹp môi trường (xóa toàn bộ file .java rác trong thư mục nguồn và file .py cũ trong workspace)
+                # Dọn dẹp môi trường (xóa toàn bộ file ().java .py )cũ trong workspace)
                 old_files = glob.glob(os.path.join(java_src_dir, "*.java")) + glob.glob(os.path.join(workspace_dir, "*.py"))
                 for fpath in old_files:
                     try:
@@ -190,7 +189,7 @@ async def run_test_suite(request: Request):
                     except Exception as e:
                         print(f"⚠️ Không thể xóa file {fpath}: {e}")
 
-                # Ghi code ban đầu vào workspace
+            
                 client.setup_initial_workspace(code_content, filename)
 
                 tc_start_time = time.time()
@@ -218,15 +217,12 @@ async def run_test_suite(request: Request):
                     async for event in compiled_app.astream(initial_state):
                         if await request.is_disconnected():
                             break
-
                         node_name = list(event.keys())[0]
                         node_update = event[node_name]
 
-                        # Cập nhật trạng thái
                         for k, v in node_update.items():
                             running_state[k] = v
 
-                        # Bắn thông tin bước hiện tại về Frontend
                         step_data = {
                             "status": "STEP",
                             "id": tc_id,
@@ -312,7 +308,6 @@ async def run_test_suite(request: Request):
                         "error": None
                     })
 
-                    # Bắn sự kiện kết quả định lượng của case đó
                     res_data = {
                         'status': 'COMPLETED',
                         'id': tc_id,

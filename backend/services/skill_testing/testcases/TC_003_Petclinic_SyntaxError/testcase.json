@@ -1,0 +1,26 @@
+{
+  "testcase_id": "TC_003_Petclinic_SyntaxError",
+  "repo_name": "spring-petclinic",
+  "repo_root": "services/skill_testing/benchmark_repos/spring-petclinic",
+  "language": "java",
+  "bug_type": "CompilationError",
+  "entry_file": "src/main/java/org/springframework/samples/petclinic/owner/Pet.java",
+  "task": "Fix the syntax error in Pet.java. A field declaration is missing a semicolon. Restore the semicolon at the end of the birthDate field.",
+  "stacktrace": "src/main/java/org/springframework/samples/petclinic/owner/Pet.java:50: error: ';' expected\n\tprivate LocalDate birthDate\n\t                           ^",
+  "bug_injection": {
+    "target_file": "src/main/java/org/springframework/samples/petclinic/owner/Pet.java",
+    "inject_type": "replace_lines",
+    "original_content": "private LocalDate birthDate;",
+    "buggy_content": "private LocalDate birthDate"
+  },
+  "build_command": [
+    "mvnw.cmd",
+    "clean",
+    "compile"
+  ],
+  "validation_command": [
+    "mvnw.cmd",
+    "test",
+    "-Dtest=OwnerTests"
+  ]
+}
