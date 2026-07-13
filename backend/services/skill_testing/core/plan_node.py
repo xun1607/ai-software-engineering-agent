@@ -21,9 +21,10 @@ async def plan_node(state: AgentState, model_client):
     """
     user_prompt = f"""
     CONTEXT:
-    Code: {state.user_context['code']}
-    Error: {state.user_context['stacktrace']}
-    Request: {state.user_context['message']}
+    File Name: {state.user_context.get('filename', '')}
+    Code: {state.user_context.get('code', '')}
+    Error: {state.user_context.get('stacktrace', '')}
+    Request: {state.user_context.get('message', '')}
     PREVIOUS REFLECTION (IF ANY):
     {state.reflection}
     """

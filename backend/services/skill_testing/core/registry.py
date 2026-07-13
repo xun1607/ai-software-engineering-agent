@@ -5,7 +5,12 @@ import time
 MODEL_NAME = "all-MiniLM-L6-v2"
 class SkillSemanticRegistry:
     def __init__(self, model_name: str = MODEL_NAME):
-        self.model = SentenceTransformer(model_name)
+        try:
+            self.model = SentenceTransformer(model_name, local_files_only=True)
+            print(f"✅ Loaded SentenceTransformer '{model_name}' from local cache.")
+        except Exception:
+            print(f"⚠️ Local cache not found for '{model_name}'. Fetching from Hugging Face Hub...")
+            self.model = SentenceTransformer(model_name)
         self._embeddings = None
         self.name_to_id_map = {}
         self.capabilities_manifest = ""

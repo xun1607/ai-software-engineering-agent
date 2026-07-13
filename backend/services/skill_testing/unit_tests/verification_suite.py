@@ -89,15 +89,12 @@ class VerificationTestSuite(unittest.IsolatedAsyncioTestCase):
             mock_resp.json.return_value = mock_response
             mock_get.return_value = mock_resp
             
-            # Call 1 (Cache Miss, should call HTTP)
             skills1 = await get_cached_skills()
             self.assertEqual(len(skills1), 1)
             
-            # Call 2 (Cache Hit, should NOT call HTTP)
             skills2 = await get_cached_skills()
             self.assertEqual(len(skills2), 1)
             
-            # Verify HTTP GET was called exactly once
             mock_get.assert_called_once_with("http://127.0.0.1:8001/skills/tools", timeout=10.0)
 
     # 2. Lazy Load Test

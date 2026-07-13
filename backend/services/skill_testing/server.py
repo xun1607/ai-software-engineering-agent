@@ -213,7 +213,6 @@ async def run_test_suite(request: Request):
                 running_state = dict(initial_state)
 
                 try:
-                    # Chạy astream của LangGraph cho testcase hiện tại để bắt các bước trung gian
                     async for event in compiled_app.astream(initial_state):
                         if await request.is_disconnected():
                             break
@@ -337,7 +336,7 @@ async def run_test_suite(request: Request):
                     }
                     yield f"data: {json.dumps(res_err, ensure_ascii=False)}\n\n"
 
-            # 4. Bắn sự kiện tổng kết
+            # sự kiện tổng kết
             total_latency = time.time() - suite_start_time
             passed_count = sum(1 for r in results if r["passed"])
             total_count = len(results)

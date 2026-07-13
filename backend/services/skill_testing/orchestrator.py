@@ -88,7 +88,7 @@ def get_compiled_workflow(llm_client, skill_client):
 
 async def run_pipeline(code_content: str = None, filename: str = "LoginService.java", stacktrace: str = "NullPointerException at LoginService:42", message: str = "Sửa lỗi login"):
     print("=========================================================")
-    print("🚀 KÍCH HOẠT ĐỒ THỊ ĐIỀU PHỐI AG2 ──> KẾT NỐI REAL AG1 🚀")
+    print("🚀 KÍCH HOẠT ĐỒ THỊ ĐIỀU PHỐI AG2 ──> KẾT NỐI AG1 🚀")
     print("=========================================================\n")
 
     print(f"api key:  {api_key}\n")
@@ -107,7 +107,7 @@ async def run_pipeline(code_content: str = None, filename: str = "LoginService.j
             {"name": "debug-java-null-pointer", "description": "Biên dịch javac kiểm tra lỗi cú pháp Java", "skill_id": "debug-java-null-pointer"}
         ]
 
-    # 2. Chỉ lập chỉ mục một lần duy nhất nếu chưa được dựng ma trận Vector để giảm latency
+    #  Chỉ lập chỉ mục một lần duy nhất nếu chưa được dựng ma trận Vector để giảm latency
     if semantic_registry._embeddings is None:
         semantic_registry.build_index(tool_list)
     else:

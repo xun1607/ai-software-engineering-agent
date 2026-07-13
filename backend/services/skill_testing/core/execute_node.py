@@ -2,6 +2,8 @@ import json
 import time
 from services.skill_testing.state import AgentState
 from services.skill_testing.core.registry import semantic_registry
+from shared.db import get_session
+from services.skill_testing.models import AgentExecutionLog
 
 async def execute_node(state: AgentState, model_client, skill_client):
     """
@@ -10,6 +12,7 @@ async def execute_node(state: AgentState, model_client, skill_client):
     2. Dùng LLM bóc tách tham số đầu vào tương ứng dựa theo ngữ cảnh lỗi của User.
     3. Gọi API thực thi kỹ năng ngầm và lưu kết quả.
     """
+    node_start_time = time.time()
     skill_name = state.selected_skill
     state.step_count += 1
     print(f"\n🚀 [EXECUTE NODE] -> Đang kích hoạt kỹ năng: '{skill_name}' (Bước tổng thể: {state.step_count})")
@@ -48,6 +51,7 @@ async def execute_node(state: AgentState, model_client, skill_client):
     
     user_prompt = f"""
     USER CONTEXT TO EXTRACT FROM:
+    - File Name: {state.user_context.get('filename', '')}
     - Source Code: {state.user_context.get('code', '')}
     - Stacktrace/Error: {state.user_context.get('stacktrace', '')}
     - User Message: {state.user_context.get('message', '')}
@@ -122,4 +126,28 @@ async def execute_node(state: AgentState, model_client, skill_client):
         "observation": state.last_observation
     })
     
+    # Ghi log thực thi vào SQLite cho Task 4
+    try:
+        node_latency_ms = int((time.time() - node_start_time) * 1000)
+        task_id = state.user_context.get("task_id", "unknown_task")
+        task_type = state.user_context.get("task_type", "unknown_type")
+        baseline_mode = state.user_context.get("baseline_mode", "unknown_baseline")
+        
+        with get_session() as session:
+            log_entry = AgentExecutionLog(
+                task_id=task_id,
+                task_type=task_type,
+                skill_name=skill_name,
+                baseline_mode=baseline_mode,
+                success=False,  # Placeholder, sẽ được cập nhật sau khi đánh giá kết quả vật lý
+                quality=0.0,    # Placeholder, sẽ được cập nhật sau khi đánh giá chất lượng
+                latency_ms=node_latency_ms,
+                total_tokens=usage.get("total_tokens", 0),
+                cost=usage.get("cost", 0.0)
+            )
+            session.add(log_entry)
+            print(f"💾 [DB LOG] Đã lưu log chạy bước này vào SQLite: {skill_name} | Task: {task_id} | Latency: {node_latency_ms}ms")
+    except Exception as db_err:
+        print(f"⚠️ [DB LOG ERROR] Lỗi khi ghi log thực thi vào SQLite: {db_err}")
+        
     return state
