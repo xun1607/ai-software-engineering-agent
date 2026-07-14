@@ -1,0 +1,62 @@
+[
+  {
+    "testcase_id": "TC_001",
+    "mode": "B2",
+    "success": true,
+    "latency_ms": 9299,
+    "total_tokens": 2066,
+    "total_cost": 0.00025995,
+    "step_count": 4,
+    "message": "Validator compile thành công."
+  },
+  {
+    "testcase_id": "TC_001",
+    "mode": "B4",
+    "success": true,
+    "latency_ms": 13305,
+    "total_tokens": 2066,
+    "total_cost": 0.00025995,
+    "step_count": 4,
+    "message": "Validator compile thành công."
+  },
+  {
+    "testcase_id": "TC_002",
+    "mode": "B2",
+    "success": true,
+    "latency_ms": 8822,
+    "total_tokens": 2510,
+    "total_cost": 0.00050745,
+    "step_count": 4,
+    "message": "Validator compile thành công."
+  },
+  {
+    "testcase_id": "TC_002",
+    "mode": "B4",
+    "success": true,
+    "latency_ms": 5414,
+    "total_tokens": 2510,
+    "total_cost": 0.00050745,
+    "step_count": 4,
+    "message": "Validator compile thành công."
+  },
+  {
+    "testcase_id": "TC_003",
+    "mode": "B2",
+    "success": false,
+    "latency_ms": 30737,
+    "total_tokens": 8447,
+    "total_cost": 0.0015874499999999998,
+    "step_count": 12,
+    "message": "Validator compile thất bại:\nSyntax error: missing semicolon on line 4"
+  },
+  {
+    "testcase_id": "TC_003",
+    "mode": "B4",
+    "success": true,
+    "latency_ms": 14373,
+    "total_tokens": 4066,
+    "total_cost": 0.0009320999999999999,
+    "step_count": 10,
+    "message": "Validator compile thành công."
+  }
+]

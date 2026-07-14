@@ -1,0 +1,22 @@
+[
+  {
+    "testcase_id": "TC_001",
+    "mode": "B4",
+    "success": true,
+    "latency_ms": 7692,
+    "total_tokens": 2817,
+    "total_cost": 0.00039555,
+    "step_count": 4,
+    "message": "Validator compile thành công."
+  },
+  {
+    "testcase_id": "TC_002",
+    "mode": "B4",
+    "success": true,
+    "latency_ms": 6313,
+    "total_tokens": 2510,
+    "total_cost": 0.00050745,
+    "step_count": 4,
+    "message": "Validator compile thành công."
+  }
+]

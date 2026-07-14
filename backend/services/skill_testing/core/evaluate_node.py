@@ -3,8 +3,11 @@ import re
 import os
 import time
 from services.skill_testing.state import AgentState
+from shared.db import get_session
+from services.skill_testing.models import AgentExecutionLog
 
 def extract_normalized_error(observation_str: str) -> str:
+    """Classifies raw errors from execution logs into standardized categories."""
     if not observation_str:
         return "GENERIC_ERROR"
     
@@ -24,7 +27,6 @@ def extract_normalized_error(observation_str: str) -> str:
     if not err_text:
         return "GENERIC_ERROR"
 
-    # Regex so khớp các Exception/Error phổ biến
     if re.search(r"NullPointerException", err_text, re.IGNORECASE):
         return "NullPointerException"
     
@@ -51,22 +53,8 @@ def extract_normalized_error(observation_str: str) -> str:
 
     return "SUCCESS_OR_NO_ERROR"
 
-async def evaluate_node(state: AgentState, model_client, skill_client=None):
-    state.step_count += 1
-    if state.step_count > state.max_total_steps:
-        state.is_finished = True
-        state.final_answer = f"TERMINATED: Safety limit reached ({state.max_total_steps} steps). Potential infinite loop."
-        return state
-
-    if not state.plan or state.current_step_idx >= len(state.plan):
-        state.is_finished = True
-        state.final_answer = "TERMINATED: No active plan to evaluate."
-        return state
-
-    current_task = state.plan[state.current_step_idx]
-    
-    # 1. Loop Detection chuẩn hóa (TASK_XA)
-    normalized_err = extract_normalized_error(state.last_observation)
+def detect_loop(state: AgentState, current_task: str, normalized_err: str) -> bool:
+    """Checks the history to detect if the agent is stuck in an infinite loop."""
     task_name = current_task or "None"
     skill_name = state.selected_skill or "None"
     fingerprint = (task_name, skill_name, normalized_err)
@@ -79,15 +67,16 @@ async def evaluate_node(state: AgentState, model_client, skill_client=None):
             state.need_replan = True
             state.is_finished = True
             state.final_answer = f"TERMINATED: Infinite loop detected. Repeating execution fingerprint 3 times: {fingerprint}"
-            return state
+            return True
+    return False
 
-    # Sử dụng LLM Evaluator để phân tích cú pháp lỗi và phát hiện thiếu hụt tài nguyên
+async def call_llm_evaluator(model_client, state: AgentState, current_task: str) -> tuple[dict, int]:
+    """Invokes LLM to check step quality and detect missing dependencies."""
     system_prompt = f"""
     You are a Quality Assurance Engineer evaluating the task execution.
     GOAL: {state.goal or state.user_context.get('message', 'Fix the bug')}
     CURRENT TASK: {current_task}
     OBSERVATION: {state.last_observation}
-    
     INSTRUCTIONS:
     1. Evaluate if the current task succeeded. If the observation shows the task succeeded or the goal for this step is met, set "is_success" to true.
     2. If the task failed due to a missing file, class, dependency, resource, or library (for example, a compilation error like "cannot find symbol", "package does not exist", "ModuleNotFoundError", "ImportError", or a missing import/class definition), you must set "need_dynamic_intervention" to true.
@@ -104,118 +93,72 @@ async def evaluate_node(state: AgentState, model_client, skill_client=None):
     response = await model_client.call(system_prompt, "Evaluate the result.")
     latency_ms = int((time.time() - start_time) * 1000)
     
-    # Sync và log tokens/latency (TASK_1B / Phase 2)
-    usage = getattr(model_client, "last_call_usage", None) or {
-        "prompt_tokens": 0,
-        "completion_tokens": 0,
-        "total_tokens": 0,
-        "model": "gpt-4o-mini",
-        "cost": 0.0
-    }
-    
-    history_entry = {
-        "node": "evaluate_node",
-        "prompt_tokens": usage.get("prompt_tokens", 0),
-        "completion_tokens": usage.get("completion_tokens", 0),
-        "total_tokens": usage.get("total_tokens", 0),
-        "latency_ms": latency_ms,
-        "model": usage.get("model", "gpt-4o-mini")
-    }
-    state.execution_history.append(history_entry)
-    
-    # Sync token usage và cộng cost vào state
-    state.prompt_tokens = getattr(model_client, "total_prompt_tokens", 0)
-    state.completion_tokens = getattr(model_client, "total_completion_tokens", 0)
-    state.total_tokens = state.prompt_tokens + state.completion_tokens
-    state.total_cost += usage.get("cost", 0.0)
-
+    # Clean markdown formatting
+    cleaned_response = response.strip()
+    if "```" in cleaned_response:
+        code_match = re.search(r"```(?:json)?\s*(.*?)\s*```", cleaned_response, re.DOTALL | re.IGNORECASE)
+        if code_match:
+            cleaned_response = code_match.group(1).strip()
+            
     try:
-        # Loại bỏ định dạng markdown nếu có
-        cleaned_response = response.strip()
-        if "```" in cleaned_response:
-            code_match = re.search(r"```(?:json)?\s*(.*?)\s*```", cleaned_response, re.DOTALL | re.IGNORECASE)
-            if code_match:
-                cleaned_response = code_match.group(1).strip()
-                
         evaluation = json.loads(cleaned_response)
-        is_success = evaluation.get("is_success", False)
-        analysis = evaluation.get("analysis", "No analysis provided.")
-        need_dynamic_intervention = evaluation.get("need_dynamic_intervention", False)
-        intervention = evaluation.get("intervention", {})
     except Exception as e:
-        is_success = False 
-        analysis = f"Failed to parse evaluation JSON: {str(e)}"
-        need_dynamic_intervention = False
-        intervention = {}
+        print(f"⚠️ [EVALUATOR] Failed to parse evaluation JSON: {e}")
+        evaluation = {
+            "is_success": False,
+            "analysis": f"Failed to parse evaluation JSON: {str(e)}",
+            "need_dynamic_intervention": False,
+            "intervention": {}
+        }
+    return evaluation, latency_ms
 
-    # Thực hiện Can thiệp động (Dynamic Intervention)
-    if need_dynamic_intervention and intervention:
-        action = intervention.get("action")
-        target_name = intervention.get("target_name")
-        content = intervention.get("content", "")
-        task_to_inject = intervention.get("task_to_inject")
-
-        print(f"⚠️ [DYNAMIC INTERVENTION] Triggered action '{action}' for '{target_name}'")
-        
-        if action == "create_file" and target_name:
-            entry_file = state.user_context.get("filename", "")
-            if skill_client:
-                if entry_file and ("/" in entry_file or "\\" in entry_file):
-                    dest_dir = os.path.join(skill_client.workspace_dir, os.path.dirname(entry_file))
-                    os.makedirs(dest_dir, exist_ok=True)
-                    file_path = os.path.join(dest_dir, target_name)
-                    with open(file_path, "w", encoding="utf-8") as f:
-                        f.write(content)
-                else:
-                    skill_client.setup_initial_workspace(content, target_name)
-            else:
-                fallback_dir = os.path.abspath(
-                    os.path.join(os.path.dirname(__file__), "..", "..", "..", "workspace")
-                )
-                if entry_file and ("/" in entry_file or "\\" in entry_file):
-                    fallback_dir = os.path.join(fallback_dir, os.path.dirname(entry_file))
-                elif target_name.endswith(".java"):
-                    fallback_dir = os.path.join(fallback_dir, "src", "main", "java")
-                os.makedirs(fallback_dir, exist_ok=True)
-                file_path = os.path.join(fallback_dir, target_name)
+def apply_dynamic_intervention(skill_client, entry_file: str, intervention: dict):
+    """Creates stub classes physically on disk when compilation/runtime dependencies are missing."""
+    action = intervention.get("action")
+    target_name = intervention.get("target_name")
+    content = intervention.get("content", "")
+    
+    print(f"⚠️ [DYNAMIC INTERVENTION] Triggered action '{action}' for '{target_name}'")
+    
+    if action == "create_file" and target_name:
+        if skill_client:
+            if entry_file and ("/" in entry_file or "\\" in entry_file):
+                dest_dir = os.path.join(skill_client.workspace_dir, os.path.dirname(entry_file))
+                os.makedirs(dest_dir, exist_ok=True)
+                file_path = os.path.join(dest_dir, target_name)
                 with open(file_path, "w", encoding="utf-8") as f:
                     f.write(content)
-            print(f"💾 [DYNAMIC INTERVENTION] Created file vật lý: {target_name}")
+            else:
+                skill_client.setup_initial_workspace(content, target_name)
         else:
-            # Ghi đè trực tiếp fallback an toàn
             fallback_dir = os.path.abspath(
                 os.path.join(os.path.dirname(__file__), "..", "..", "..", "workspace")
             )
-            entry_file = state.user_context.get("filename", "")
             if entry_file and ("/" in entry_file or "\\" in entry_file):
                 fallback_dir = os.path.join(fallback_dir, os.path.dirname(entry_file))
             elif target_name.endswith(".java"):
                 fallback_dir = os.path.join(fallback_dir, "src", "main", "java")
-                
             os.makedirs(fallback_dir, exist_ok=True)
-            with open(os.path.join(fallback_dir, target_name), "w", encoding="utf-8") as f:
+            file_path = os.path.join(fallback_dir, target_name)
+            with open(file_path, "w", encoding="utf-8") as f:
                 f.write(content)
-            print(f"💾 [DYNAMIC INTERVENTION] Wrote file directly to fallback path: {target_name}")
-
-        if task_to_inject:
-            current_task = state.plan[state.current_step_idx] if state.current_step_idx < len(state.plan) else None
-            next_task = state.plan[state.current_step_idx + 1] if state.current_step_idx + 1 < len(state.plan) else None
+        print(f"💾 [DYNAMIC INTERVENTION] Created file vật lý: {target_name}")
+    else:
+        fallback_dir = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "..", "..", "workspace")
+        )
+        if entry_file and ("/" in entry_file or "\\" in entry_file):
+            fallback_dir = os.path.join(fallback_dir, os.path.dirname(entry_file))
+        elif target_name.endswith(".java"):
+            fallback_dir = os.path.join(fallback_dir, "src", "main", "java")
             
-            if task_to_inject == current_task or task_to_inject == next_task:
-                print(f"⏭️ [TASK INJECTION PREVENTED] Task '{task_to_inject}' is already at current/next position. No duplication needed.")
-            else:
-                state.plan.insert(state.current_step_idx, task_to_inject)
-                print(f"💉 [TASK INJECTION] Injected task '{task_to_inject}' at index {state.current_step_idx}")
+        os.makedirs(fallback_dir, exist_ok=True)
+        with open(os.path.join(fallback_dir, target_name), "w", encoding="utf-8") as f:
+            f.write(content)
+        print(f"💾 [DYNAMIC INTERVENTION] Wrote file directly to fallback path: {target_name}")
 
-        state.retry_count = 0  # Đặt về 0 để bộ định tuyến route_decision đưa đồ thị đi qua select_skill_node chọn kỹ năng mới
-        state.reflection.append(f"🔄 Dynamic intervention: Created {target_name}. Injected task {task_to_inject}.")
-        state.last_observation = json.dumps({
-            "status": "SUCCESS", 
-            "message": f"Intervention completed: {target_name} created.", 
-            "stdout": f"Created {target_name} successfully."
-        })
-        return state
-
+def route_next_state(state: AgentState, is_success: bool, analysis: str) -> AgentState:
+    """Updates state machine properties (retry counts, finish status, plan indices)."""
     if is_success:
         state.retry_count = 0 
         state.reflection.append(f"✅ Step {state.current_step_idx + 1} Success: {analysis}")
@@ -227,29 +170,173 @@ async def evaluate_node(state: AgentState, model_client, skill_client=None):
         else:
             state.selected_skill = None
             state.last_observation = None
-    
     else:
         state.reflection.append(f"❌ Step {state.current_step_idx + 1} Failed: {analysis}")
         
-        if state.retry_count < 1: # Cho phép thử lại 1 lần (tổng 2 lần chạy)
+        if state.retry_count < 1:  # Allow 1 retry
             state.retry_count += 1
-
         elif state.replan_count < state.max_replans:
             state.replan_count += 1
             state.retry_count = 0
             state.plan = []
             state.current_step_idx = 0
             state.reflection.append(f"🔄 Re-planning attempt {state.replan_count}/{state.max_replans} due to failure.")
-        
         else:
             state.is_finished = True
             state.final_answer = generate_fallback_suggestion(state)
+            
+    return state
 
+async def evaluate_node(state: AgentState, model_client, skill_client=None) -> AgentState:
+    """
+    Node đánh giá (Evaluator): Node kiểm tra kết quả thực thi của task hiện tại và 
+    quyết định trạng thái thực thi tiếp theo của Agent. Ngoài việc kiểm tra task đang thực hiện có thành công hay không, 
+    node còn thực hiện các kiểm tra an toàn, gọi LLM để đánh giá chất lượng kết quả, hỗ trợ cơ chế tự phục hồi 
+    (Dynamic Self-Healing) và cập nhật các chỉ số thực thi
+    
+    Chức năng:
+    1. Dừng quá trình thực thi khi vượt quá các ngưỡng an toàn hoặc không còn kế hoạch hợp lệ.
+    2. Phát hiện các lần thất bại lặp lại để tránh vòng lặp thực thi vô hạn.
+    3. Gọi bộ đánh giá dựa trên LLM để xác định task hiện tại đã hoàn thành thành công hay chưa.
+    4. Ghi nhận các chỉ số thực thi như số lượng token, độ trễ (latency) và các metrics liên quan.
+    5. Thực hiện can thiệp động (Dynamic Intervention / Self-Healing) khi bộ đánh giá đề xuất hành động khôi phục.
+    6. Quyết định trạng thái tiếp theo của Agent (tiếp tục, thử lại, lập kế hoạch lại hoặc kết thúc).
+    """
+    state.step_count += 1
+    if state.step_count > state.max_total_steps:
+        state.is_finished = True
+        state.final_answer = f"TERMINATED: Safety limit reached ({state.max_total_steps} steps). Potential infinite loop."
+        return state
+
+    if not state.plan or state.current_step_idx >= len(state.plan):
+        state.is_finished = True
+        state.final_answer = "TERMINATED: No active plan to evaluate."
+        return state
+
+    current_task = state.plan[state.current_step_idx]
+    
+    # Loop Detection
+    normalized_err = extract_normalized_error(state.last_observation)
+    if detect_loop(state, current_task, normalized_err):
+        return state
+
+    # 3. Đánh giá kết quả khách quan dựa trên Environment Validator hoặc Executor Status
+    validation_feedback = state.user_context.get("validation_feedback")
+    
+    is_success = False
+    analysis = "No analysis provided."
+    need_dynamic_intervention = False
+    intervention = {}
+    latency_ms = 0
+    
+    # Kiểm tra nếu bước này có chạy Environment Validator
+    if validation_feedback is not None:
+        is_success = (validation_feedback["exit_code"] == 0)
+        analysis = "Environment Validator: Passed." if is_success else f"Environment Validator Failed. Error:\n{validation_feedback['stderr']}"
+        print(f"🛡️ [EVALUATOR] Sử dụng kết quả khách quan từ Environment Validator. Success: {is_success}")
+        
+        # Nếu thất bại, gọi LLM để phân tích khả năng tự phục hồi (Self-Healing) chèn stub file
+        if not is_success:
+            print("🛡️ [EVALUATOR] Validator thất bại. Gọi LLM để phân tích khả năng tự phục hồi (Self-Healing)...")
+            evaluation, latency_ms = await call_llm_evaluator(model_client, state, current_task)
+            need_dynamic_intervention = evaluation.get("need_dynamic_intervention", False)
+            intervention = evaluation.get("intervention", {})
+            analysis += f"\nLLM Analysis: {evaluation.get('analysis', '')}"
+    else:
+        # Nếu không có validator (các skill đọc file, parse stacktrace), kiểm tra trạng thái Executor
+        try:
+            obs_data = json.loads(state.last_observation) if state.last_observation else {}
+            obs_status = obs_data.get("status", "SUCCESS")
+        except Exception:
+            obs_status = "SUCCESS"
+            
+        is_success = (obs_status.upper() == "SUCCESS")
+        analysis = "Executor completed successfully." if is_success else "Executor execution failed."
+        print(f"🛡️ [EVALUATOR] Sử dụng trạng thái thực thi của Executor. Success: {is_success}")
+        
+        # Nếu Executor chính thất bại, gọi LLM phân tích khả năng tự phục hồi
+        if not is_success:
+            print("🛡️ [EVALUATOR] Executor thất bại. Gọi LLM để phân tích khả năng tự phục hồi...")
+            evaluation, latency_ms = await call_llm_evaluator(model_client, state, current_task)
+            need_dynamic_intervention = evaluation.get("need_dynamic_intervention", False)
+            intervention = evaluation.get("intervention", {})
+            analysis += f"\nLLM Analysis: {evaluation.get('analysis', '')}"
+            
+    # Ghi vào execution logs
+    usage = getattr(model_client, "last_call_usage", None) if (not is_success or validation_feedback is None) else {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "model": "environment_validator",
+        "cost": 0.0
+    }
+    if not usage:
+        usage = {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+            "model": "local_evaluator",
+            "cost": 0.0
+        }
+        
+    history_entry = {
+        "node": "evaluate_node",
+        "prompt_tokens": usage.get("prompt_tokens", 0),
+        "completion_tokens": usage.get("completion_tokens", 0),
+        "total_tokens": usage.get("total_tokens", 0),
+        "latency_ms": latency_ms,
+        "model": usage.get("model", "gpt-4o-mini" if (not is_success) else "local_validator")
+    }
+    state.execution_history.append(history_entry)
+    
+    # Sync token usage counts
+    state.prompt_tokens = getattr(model_client, "total_prompt_tokens", 0)
+    state.completion_tokens = getattr(model_client, "total_completion_tokens", 0)
+    state.total_tokens = state.prompt_tokens + state.completion_tokens
+    state.total_cost += usage.get("cost", 0.0)
+    
+    last_log_id = state.user_context.get("last_log_id")
+    if last_log_id:
+        try:
+            with get_session() as session:
+                log_entry = session.query(AgentExecutionLog).filter_by(id=last_log_id).first()
+                if log_entry:
+                    log_entry.success = is_success
+                    log_entry.quality = 1.0 if is_success else 0.0
+                    session.commit()
+                    print(f"🔄 [DB UPDATE] Đã đồng bộ kết quả thực tế vào SQLite cho Log ID: {last_log_id} | Success: {is_success}")
+        except Exception as db_update_err:
+            print(f"⚠️ [DB UPDATE ERROR] Không thể cập nhật kết quả vào SQLite: {db_update_err}")
+
+    # Handle Self-healing (Dynamic Intervention)
+    if need_dynamic_intervention and intervention:
+        apply_dynamic_intervention(skill_client, state.user_context.get("filename", ""), intervention)
+        
+        task_to_inject = intervention.get("task_to_inject")
+        if task_to_inject:
+            next_task = state.plan[state.current_step_idx + 1] if state.current_step_idx + 1 < len(state.plan) else None
+            if task_to_inject == current_task or task_to_inject == next_task:
+                print(f"⏭️ [TASK INJECTION PREVENTED] Task '{task_to_inject}' is already at current/next position. No duplication needed.")
+            else:
+                state.plan.insert(state.current_step_idx, task_to_inject)
+                print(f"💉 [TASK INJECTION] Injected task '{task_to_inject}' at index {state.current_step_idx}")
+
+        state.retry_count = 0  # reset retries for injected recovery task
+        state.reflection.append(f"🔄 Dynamic intervention: Created {intervention.get('target_name')}. Injected task {task_to_inject}.")
+        state.last_observation = json.dumps({
+            "status": "SUCCESS", 
+            "message": f"Intervention completed: {intervention.get('target_name')} created.", 
+            "stdout": f"Created {intervention.get('target_name')} successfully."
+        })
+        return state
+
+    # State transitions (Success / Fail / Retry / Replan)
+    state = route_next_state(state, is_success, analysis)
     return state
 
 def generate_fallback_suggestion(state: AgentState) -> str:
-    """Tạo báo cáo lỗi và gợi ý (Helper function - không dùng 'self')"""
-    summary = "❌ FAILED: I have exhausted all retries and re-planning attempts.\n"
+    """Generates failure description report."""
+    summary = "❌ FAILED: Đã thử lại tối đa số lần (1) và replan nhưng không thành công.\n"
     summary += f"- Steps attempted: {state.step_count}\n"
     summary += f"- Last failure: {state.reflection[-1] if state.reflection else 'Unknown'}\n"
     if hasattr(state, 'missing_skills_log') and state.missing_skills_log:

@@ -1,0 +1,22 @@
+[
+  {
+    "testcase_id": "TC_001",
+    "mode": "B4",
+    "success": false,
+    "latency_ms": 0,
+    "total_tokens": 0,
+    "total_cost": 0.0,
+    "step_count": 0,
+    "message": "Crash: cannot import name 'validation_runtime' from 'services.skill_testing.core.validation_runtime' (D:\\PROJECT_GIT\\gr1-prj\\ai-software-engineering-agent\\backend\\services\\skill_testing\\core\\validation_runtime.py)"
+  },
+  {
+    "testcase_id": "TC_002",
+    "mode": "B4",
+    "success": false,
+    "latency_ms": 0,
+    "total_tokens": 0,
+    "total_cost": 0.0,
+    "step_count": 0,
+    "message": "Crash: cannot import name 'validation_runtime' from 'services.skill_testing.core.validation_runtime' (D:\\PROJECT_GIT\\gr1-prj\\ai-software-engineering-agent\\backend\\services\\skill_testing\\core\\validation_runtime.py)"
+  }
+]

@@ -1,12 +1,12 @@
 import asyncio
-import subprocess
 import os
-import re
 import sys
+import importlib
+from services.skill_testing.core.execution_models import ExecutionContext, SkillResult
 
 class SkillExecutionClient:
-    """Môi trường thực thi kỹ năng (AG2 Runtime Engine) trên Hệ điều hành"""
-    def __init__(self, workspace_path: str = None):
+    """Môi trường thực thi kỹ năng (AG2 Runtime Engine)"""
+    def __init__(self, workspace_path: str = None, logger=None, config: dict = None, runtime=None):
         # Đọc từ env WORKSPACE_PATH, fallback về tham số workspace_path, sau đó fallback về relative path
         env_path = os.environ.get("WORKSPACE_PATH")
         fallback_path = os.path.abspath(
@@ -18,6 +18,14 @@ class SkillExecutionClient:
         os.makedirs(self.workspace_dir, exist_ok=True)
         self.java_src_dir = os.path.join(self.workspace_dir, "src", "main", "java")
         os.makedirs(self.java_src_dir, exist_ok=True)
+        
+        # Khởi tạo ExecutionContext thống nhất cho mọi kỹ năng
+        self.context = ExecutionContext(
+            workspace_dir=self.workspace_dir,
+            logger=logger,
+            config=config,
+            runtime=runtime
+        )
 
     def get_file_path(self, filename: str) -> str:
         if not filename:
@@ -28,7 +36,7 @@ class SkillExecutionClient:
             return os.path.join(self.java_src_dir, filename)
         return os.path.join(self.workspace_dir, filename)
         
-    def setup_initial_workspace(self, code_content: str, filename: str = "LoginService.java") -> str:
+    def setup_initial_workspace(self, code_content: str, filename: str = "") -> str:
         """Ghi đoạn code lỗi do người dùng paste vào thành file Java hoặc Python trên ổ cứng"""
         if filename.endswith(".py"):
             file_path = os.path.join(self.workspace_dir, filename)
@@ -40,255 +48,62 @@ class SkillExecutionClient:
         return file_path
     
     async def execute_skill(self, skill_name: str, args: dict) -> dict:
-        print(f"⏳ [RUNTIME RUN] -> Đang thực thi REAL kỹ năng '{skill_name}' trên ổ cứng...")
+        import time
+        import traceback
         
-        # CHUẨN HÓA: Biến 'analyze-stacktrace' thành 'analyze_stacktrace' để code Python dễ bắt
         name_clean = skill_name.lower().replace("-", "_")
+        print(f"\n⏳ [RUNTIME] -> Đang khởi chạy kỹ năng '{skill_name}'...")
+        print(f"   - Tham số đầu vào: {args}")
         
-        # --- SKILL 1: PHÂN TÍCH STACKTRACE THẬT ---
-        if name_clean == "analyze_stacktrace":
-            raw_stacktrace = args.get("stacktrace", "")
+        start_time = time.time()
+        timeout_sec = self.context.config.get("timeout_sec", 30.0)
+        
+        try:
+            # Import tool của skill
+            module_path = f"services.skill_testing.skills.{name_clean}.executor"
+            module = importlib.import_module(module_path)
+            execute_fn = getattr(module, "execute", None)
             
-            py_match = re.search(r'File\s+["\']([^"\']+)["\'],\s*line\s*(\d+)', raw_stacktrace)
-          
-            java_match = re.search(r'at\s+[\w\.]+\([\w\-]+\.java:(\d+)\)', raw_stacktrace)
-
-            java_file_match = re.search(r'([\w\-]+\.java)', raw_stacktrace)
+            if not execute_fn:
+                raise ImportError(f"Không tìm thấy hàm 'execute' trong module {module_path}")
+                
+            # Thực thi kỹ năng với thời gian giới hạn (Timeout)
+            result: SkillResult = await asyncio.wait_for(
+                execute_fn(self.context, args),
+                timeout=timeout_sec
+            )
             
-            parsed_file = None
-            parsed_line = 1
+            latency_ms = int((time.time() - start_time) * 1000)
+            print(f"✅ [RUNTIME] Kỹ năng '{skill_name}' thực thi HOÀN TẤT ({latency_ms}ms) | Trạng thái: {result.status}")
+            return result.to_dict()
             
-            if py_match:
-                parsed_file = py_match.group(1)
-                parsed_line = int(py_match.group(2))
-            elif java_match:
-                parsed_line = int(java_match.group(1))
-                if java_file_match:
-                    parsed_file = java_file_match.group(1)
-            elif java_file_match:
-                parsed_file = java_file_match.group(1)
-            
-            # Fallback to arguments or dynamically detect file in workspace
-            if not parsed_file:
-                parsed_file = args.get("file") or args.get("source_path")
-                if not parsed_file:
-                    import glob
-                    java_files = glob.glob(os.path.join(self.java_src_dir, "*.java"))
-                    py_files = glob.glob(os.path.join(self.workspace_dir, "*.py"))
-                    if java_files:
-                        parsed_file = os.path.basename(java_files[0])
-                    elif py_files:
-                        parsed_file = os.path.basename(py_files[0])
-                    else:
-                        parsed_file = "LoginService.java"
+        except asyncio.TimeoutError:
+            latency_ms = int((time.time() - start_time) * 1000)
+            print(f"❌ [RUNTIME] Kỹ năng '{skill_name}' BỊ QUÁ HẠN TIMEOUT sau {timeout_sec}s! Dọn dẹp tài nguyên...")
+            self.context.kill_active_processes()
             
             return {
-                "status": "SUCCESS",
-                "file": parsed_file,
-                "line": parsed_line,
-                "stdout": f"Parsed frame: {parsed_file} at line {parsed_line}.",
-                "message": f"✅ [SKILL LOG] Khớp hiện trường: Phát hiện điểm nghẽn tại {parsed_file}:{parsed_line}."
+                "status": "FAILED",
+                "stdout": "",
+                "stderr": f"TIMEOUT EXPIRED: Lệnh thực thi vượt quá giới hạn thời gian {timeout_sec} giây.",
+                "message": f"❌ Lỗi timeout thực thi kỹ năng '{skill_name}'."
             }
-        
-        # --- SKILL 2: ĐỌC NGỮ CẢNH CODE ---
-        elif name_clean == "read_code_context":
-            filename = args.get("file") or args.get("source_path")
-            if not filename:
-                import glob
-                java_files = glob.glob(os.path.join(self.java_src_dir, "*.java"))
-                py_files = glob.glob(os.path.join(self.workspace_dir, "*.py"))
-                if java_files:
-                    filename = os.path.basename(java_files[0])
-                elif py_files:
-                    filename = os.path.basename(py_files[0])
-                else:
-                    filename = "LoginService.java"
-                    
-            target_line = int(args.get("line", 1))
-            file_path = self.get_file_path(filename)
-            try:
-                with open(file_path, "r", encoding="utf-8") as f:
-                    lines = f.readlines()
-                start = max(0, target_line - 6)
-                end = min(len(lines), target_line + 5)
-                code_snippet = "".join(lines[start:end])
-                return {
-                    "status": "SUCCESS",
-                    "stdout": code_snippet,
-                    "message": f"🚀 [SKILL LOG] Đã bốc mã nguồn từ {filename} xung quanh dòng {target_line}"
-                }
-            except Exception as e:
-                return {"status": "FAILED", "stdout": str(e)}
- 
-        # --- SKILL 3: GHI BẢN SỬA CODE MỚI ---
-        elif name_clean == "suggest_java_fix":
-            filename = args.get("file") or args.get("source_path")
-            if not filename:
-                import glob
-                java_files = glob.glob(os.path.join(self.java_src_dir, "*.java"))
-                if java_files:
-                    filename = os.path.basename(java_files[0])
-                else:
-                    filename = "LoginService.java"
-                    
-            patched_code = args.get("patched_code") or args.get("code_context") or args.get("code_snippet")
-            file_path = self.get_file_path(filename)
-            
-            if not patched_code:
-                return {"status": "FAILED", "stdout": "Missing patched_code parameter."}
-                
-            try:
-                with open(file_path, "w", encoding="utf-8") as f:
-                    f.write(patched_code)
-                return {
-                    "status": "SUCCESS",
-                    "stdout": "File updated successfully.",
-                    "message": f"🔧 [SKILL LOG] Agent đã vá file {filename} vật lý xuống đĩa cứng!"
-                }
-            except Exception as e:
-                return {"status": "FAILED", "stdout": str(e)}
- 
-        # --- SKILL 4: BIÊN DỊCH JAVAC ---
-        elif name_clean == "debug_java_null_pointer":
-            filename = args.get("file") or args.get("source_path")
-            if not filename:
-                import glob
-                java_files = glob.glob(os.path.join(self.java_src_dir, "*.java"))
-                if java_files:
-                    filename = os.path.basename(java_files[0])
-                else:
-                    filename = "LoginService.java"
-                    
-            file_path = self.get_file_path(filename)
-            rel_file_path = os.path.relpath(file_path, self.workspace_dir)
-            try:
-                import subprocess
-                result = await asyncio.to_thread(
-                    subprocess.run,
-                    ["javac", rel_file_path],
-                    cwd=self.workspace_dir,
-                    capture_output=True,
-                    text=True,
-                    timeout=30
-                )
-                if result.returncode == 0:
-                    return {
-                        "status": "SUCCESS",
-                        "stdout": result.stdout,
-                        "stderr": result.stderr,
-                        "returncode": result.returncode,
-                        "message": f"✅ [SKILL LOG] Javac xác nhận: File {filename} sạch bóng lỗi cú pháp!"
-                    }
-                else:
-                    return {
-                        "status": "FAILED",
-                        "stdout": result.stdout,
-                        "stderr": result.stderr,
-                        "returncode": result.returncode,
-                        "message": "❌ Lỗi biên dịch cú pháp Java."
-                    }
-            except subprocess.TimeoutExpired as te:
-                return {
-                    "status": "FAILED",
-                    "stdout": te.stdout or "",
-                    "stderr": te.stderr or "TIMEOUT: Lệnh biên dịch javac bị treo và vượt quá 30 giây.",
-                    "message": "❌ Lỗi timeout biên dịch."
-                }
-            except Exception as e:
-                return {
-                    "status": "FAILED",
-                    "stdout": "",
-                    "stderr": str(e),
-                    "message": "❌ Lỗi hệ thống khi thực thi javac."
-                }
- 
-        # --- SKILL 5: THỰC THI PYTHON THẬT ---
-        elif name_clean == "debug_python_error":
-            filename = args.get("file") or args.get("source_path")
-            if not filename:
-                import glob
-                py_files = glob.glob(os.path.join(self.workspace_dir, "*.py"))
-                if py_files:
-                    filename = os.path.basename(py_files[0])
-                else:
-                    filename = "data_sync.py"
-                    
-            if not filename.endswith(".py"):
-                filename += ".py"
-                
-            file_path = os.path.join(self.workspace_dir, filename)
-            try:
-                import subprocess
-                # Check for virtual environment python executable
-                python_exe = os.path.join(os.path.dirname(self.workspace_dir), "venv", "Scripts", "python.exe")
-                if not os.path.exists(python_exe):
-                    python_exe = sys.executable # Use current running Python interpreter
-                
-                result = await asyncio.to_thread(
-                    subprocess.run,
-                    [python_exe, filename],
-                    cwd=self.workspace_dir,
-                    capture_output=True,
-                    text=True,
-                    timeout=30
-                )
-                if result.returncode == 0:
-                    return {
-                        "status": "SUCCESS",
-                        "stdout": result.stdout,
-                        "stderr": result.stderr,
-                        "returncode": result.returncode,
-                        "message": f"✅ [SKILL LOG] Python xác nhận: File {filename} chạy không lỗi!"
-                    }
-                else:
-                    return {
-                        "status": "FAILED",
-                        "stdout": result.stdout,
-                        "stderr": result.stderr,
-                        "returncode": result.returncode,
-                        "message": f"❌ Lỗi thực thi Python: {result.stderr}"
-                    }
-            except subprocess.TimeoutExpired as te:
-                return {
-                    "status": "FAILED",
-                    "stdout": te.stdout or "",
-                    "stderr": te.stderr or "TIMEOUT: Lệnh thực thi python bị treo.",
-                    "message": "❌ Lỗi timeout Python."
-                }
-            except Exception as e:
-                return {
-                    "status": "FAILED",
-                    "stdout": "",
-                    "stderr": str(e),
-                    "message": "❌ Lỗi hệ thống khi thực thi Python."
-                }
- 
-        # --- SKILL 6: GHI BẢN SỬA PYTHON THẬT ---
-        elif name_clean == "suggest_python_fix":
-            filename = args.get("file") or args.get("source_path")
-            if not filename:
-                import glob
-                py_files = glob.glob(os.path.join(self.workspace_dir, "*.py"))
-                if py_files:
-                    filename = os.path.basename(py_files[0])
-                else:
-                    filename = "data_sync.py"
-                    
-            patched_code = args.get("patched_code") or args.get("code_context") or args.get("code_snippet")
-            file_path = os.path.join(self.workspace_dir, filename)
-            
-            if not patched_code:
-                return {"status": "FAILED", "stdout": "Missing patched_code parameter."}
-                
-            try:
-                with open(file_path, "w", encoding="utf-8") as f:
-                    f.write(patched_code)
-                return {
-                    "status": "SUCCESS",
-                    "stdout": "File updated successfully.",
-                    "message": f"🔧 [SKILL LOG] Agent đã vá file {filename} vật lý xuống đĩa cứng!"
-                }
-            except Exception as e:
-                return {"status": "FAILED", "stdout": str(e)}
-                
-        return {"status": "FAILED", "stdout": f"Unknown skill: {skill_name}"}
+        except ImportError as ie:
+            latency_ms = int((time.time() - start_time) * 1000)
+            print(f"❌ [RUNTIME] Lỗi import động kỹ năng '{skill_name}': {ie}")
+            return {
+                "status": "FAILED",
+                "stdout": "",
+                "stderr": str(ie),
+                "message": f"❌ Không tìm thấy bộ thực thi cho kỹ năng '{skill_name}'"
+            }
+        except Exception as e:
+            latency_ms = int((time.time() - start_time) * 1000)
+            print(f"❌ [RUNTIME] Ngoại lệ chưa xử lý khi chạy kỹ năng '{skill_name}': {e}")
+            traceback.print_exc()
+            return {
+                "status": "FAILED",
+                "stdout": "",
+                "stderr": f"{str(e)}\n{traceback.format_exc()}",
+                "message": f"❌ Lỗi hệ thống trong quá trình thực thi kỹ năng: {str(e)}"
+            }

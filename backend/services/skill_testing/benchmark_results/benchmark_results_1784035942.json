@@ -1,0 +1,42 @@
+[
+  {
+    "testcase_id": "TC_001",
+    "mode": "B4",
+    "success": true,
+    "latency_ms": 8805,
+    "total_tokens": 2817,
+    "total_cost": 0.00039555,
+    "step_count": 4,
+    "message": "Validator compile thành công."
+  },
+  {
+    "testcase_id": "TC_002",
+    "mode": "B4",
+    "success": true,
+    "latency_ms": 6130,
+    "total_tokens": 2510,
+    "total_cost": 0.00050745,
+    "step_count": 4,
+    "message": "Validator compile thành công."
+  },
+  {
+    "testcase_id": "TC_003",
+    "mode": "B4",
+    "success": true,
+    "latency_ms": 23159,
+    "total_tokens": 4031,
+    "total_cost": 0.0008853000000000001,
+    "step_count": 10,
+    "message": "Validator compile thành công."
+  },
+  {
+    "testcase_id": "TC_004",
+    "mode": "B4",
+    "success": false,
+    "latency_ms": 17038,
+    "total_tokens": 4094,
+    "total_cost": 0.0009061500000000001,
+    "step_count": 10,
+    "message": "Validator compile thất bại:\nCannot resolve method 'getEmail()' in 'Customer'"
+  }
+]

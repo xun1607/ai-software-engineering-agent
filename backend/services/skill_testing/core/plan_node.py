@@ -9,7 +9,7 @@ async def plan_node(state: AgentState, model_client):
     capabilities = semantic_registry.capabilities_manifest
     
     system_prompt = f"""
-    You are the Lead Software Architect AI. Your job is to analyze a Java software issue and generate a sequential plan to fix it.
+    You are the Lead Software Architect AI. Your job is to analyze a software issue and generate a sequential plan to fix it.
     CRITICAL RULE:
     You must ONLY use the exact tool names listed in the AVAILABLE TOOLS catalog below to build your plan.
     Do NOT create custom text, instructions, or sub-steps like 'check_user_object_for_null'. 
@@ -51,7 +51,6 @@ async def plan_node(state: AgentState, model_client):
     }
     state.execution_history.append(history_entry)
     
-    # Cộng dồn vào state
     state.prompt_tokens += usage.get("prompt_tokens", 0)
     state.completion_tokens += usage.get("completion_tokens", 0)
     state.total_tokens += usage.get("total_tokens", 0)

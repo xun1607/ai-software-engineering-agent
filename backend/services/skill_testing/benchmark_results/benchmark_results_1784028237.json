@@ -1,0 +1,22 @@
+[
+  {
+    "testcase_id": "TC_001",
+    "mode": "B4",
+    "success": false,
+    "latency_ms": 10929,
+    "total_tokens": 2774,
+    "total_cost": 0.0005673,
+    "step_count": 6,
+    "message": "Bản vá chưa sửa đúng lỗi hoặc khác biệt ngữ nghĩa."
+  },
+  {
+    "testcase_id": "TC_002",
+    "mode": "B4",
+    "success": true,
+    "latency_ms": 5714,
+    "total_tokens": 2082,
+    "total_cost": 0.0003726,
+    "step_count": 4,
+    "message": "Bản vá tương đương ngữ nghĩa với Ground Truth."
+  }
+]

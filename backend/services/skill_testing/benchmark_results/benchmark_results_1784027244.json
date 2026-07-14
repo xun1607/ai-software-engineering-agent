@@ -1,0 +1,32 @@
+[
+  {
+    "testcase_id": "TC_001",
+    "mode": "B4",
+    "success": false,
+    "latency_ms": 8963,
+    "total_tokens": 2592,
+    "total_cost": 0.0004734,
+    "step_count": 6,
+    "message": "Bản vá chưa sửa đúng lỗi hoặc khác biệt ngữ nghĩa."
+  },
+  {
+    "testcase_id": "TC_002",
+    "mode": "B4",
+    "success": false,
+    "latency_ms": 5790,
+    "total_tokens": 2058,
+    "total_cost": 0.000369,
+    "step_count": 4,
+    "message": "Bản vá chưa sửa đúng lỗi hoặc khác biệt ngữ nghĩa."
+  },
+  {
+    "testcase_id": "TC_003",
+    "mode": "B4",
+    "success": true,
+    "latency_ms": 11503,
+    "total_tokens": 2638,
+    "total_cost": 0.00049875,
+    "step_count": 6,
+    "message": "Bản vá tương đương ngữ nghĩa với Ground Truth."
+  }
+]

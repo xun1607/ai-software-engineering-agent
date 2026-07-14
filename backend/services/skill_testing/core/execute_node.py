@@ -1,153 +1,124 @@
 import json
 import time
-from services.skill_testing.state import AgentState
-from services.skill_testing.core.registry import semantic_registry
-from shared.db import get_session
-from services.skill_testing.models import AgentExecutionLog
+from typing import Dict, Any
 
-async def execute_node(state: AgentState, model_client, skill_client):
+from services.skill_testing.state import AgentState
+from services.skill_testing.core.execution_models import RuntimeConfig, ExecutionResult
+from services.skill_testing.core.skill_loader import SkillLoader
+from services.skill_testing.core.parameter_resolver import resolve_parameters
+from services.skill_testing.core.execution_runtime import ExecutionRuntime
+from services.skill_testing.core.validation_runtime import ValidationRuntime
+from services.skill_testing.core.telemetry_logger import TelemetryLogger
+
+# Khởi tạo Validation Runtime đọc cấu hình từ overlay json
+validation_runtime = ValidationRuntime()
+
+async def llm_simulate_compiler(model_client, code: str, filename: str) -> dict:
+    """Wrapper tương thích ngược để chạy Simulated Compiler qua LLMValidator plugin."""
+    from services.skill_testing.core.validation_runtime import LLMValidator
+    validator = LLMValidator()
+    return await validator.validate(
+        filename=filename,
+        rel_path=filename,
+        workspace_dir="",
+        args={"patched_code": code},
+        model_client=model_client
+    )
+
+async def execute_node(state: AgentState, model_client, skill_client) -> AgentState:
     """
-    Node thực thi (Executor): 
-    1. Xác thực tên kỹ năng dạng chuỗi (str) từ Registry.
-    2. Dùng LLM bóc tách tham số đầu vào tương ứng dựa theo ngữ cảnh lỗi của User.
-    3. Gọi API thực thi kỹ năng ngầm và lưu kết quả.
+    Node thực thi (Executor) đóng vai trò Orchestrator tinh giản:
+    1. Skill Loader: Tải SOP kỹ năng từ Registry.
+    2. Parameter Resolver: Giải quyết tham số (local + LLM fallback), tạo ra ExecutionRequest.
+    3. Execution Runtime: Chạy kỹ năng vật lý, trả về ExecutionResult.
+    4. Validation Runtime: Biên dịch/chạy thử mã nguồn, trả về ValidationReport.
+    5. Telemetry Logger: Lưu vết lịch sử và ghi số liệu SQLite.
     """
     node_start_time = time.time()
     skill_name = state.selected_skill
     state.step_count += 1
     print(f"\n🚀 [EXECUTE NODE] -> Đang kích hoạt kỹ năng: '{skill_name}' (Bước tổng thể: {state.step_count})")
     
-    # Tải chi tiết kỹ năng qua Lazy Load (TASK_2A)
-    skill_info = await semantic_registry.get_skill_detail(skill_name)
+    # Khởi tạo Runtime Config (đọc ghi đè policy từ context nếu có)
+    policy = state.user_context.get("validation_policy", "prefer_physical")
+    runtime_config = RuntimeConfig(
+        validation_policy=policy,
+        timeout=30,
+        llm_model="gpt-4o-mini"
+    )
     
+    # 1. Load skill information
+    skill_info = await SkillLoader.load(skill_name)
     if not skill_info:
         state.last_observation = json.dumps({"status": "FAILED", "message": "Thiếu dữ liệu SOP"})
         return state
+        
+    # 2. Local parameter resolution + LLM Fallback -> ExecutionRequest
+    request, resolved_args, usage, llm_latency_ms = await resolve_parameters(
+        state, skill_info, skill_name, model_client, runtime_config
+    )
     
-    metadata = skill_info.get("metadata", {}) or skill_info
-    input_schema = metadata.get("input", {}) or skill_info.get("input", {})
-    output_schema = metadata.get("output", {}) or skill_info.get("output", {})
-
-    # 2. Thiết lập Prompt tối giản chỉ dựa trên JSON Schema (TASK_5A)
-    system_prompt = f"""
-    You are a Software Engineering Parameter Extractor and Code Generator for the skill: '{skill_name}'.
-    Your job is to look at the user's code context, error log, and request to generate the arguments matching the JSON schemas below.
+    state.last_thought = f"Resolved arguments for {skill_name}: {request.args}"
+    print(f"💡 [AGENT THOUGHT] -> Tham số cuối cùng cho '{skill_name}': {request.args}")
     
-    INPUT SCHEMA:
-    {json.dumps(input_schema or {"patched_code": {"type": "string", "description": "The complete patched source code content. MUST contain the full code, enclosing class, imports, methods, etc."}, "file": {"type": "string"}}, ensure_ascii=False, indent=2)}
-    
-    OUTPUT SCHEMA:
-    {json.dumps(output_schema, ensure_ascii=False, indent=2)}
-    
-    EXPECTED ARGUMENTS LOGIC BASED ON SKILL NAME:
-    - If skill is 'analyze-stacktrace' or 'debug-java-null-pointer': extract 'stacktrace' and 'file' (or 'source_path').
-    - If skill is 'read-code-context': extract 'file' and 'line' (as integer).
-    - If skill is 'suggest-java-fix' or 'suggest-python-fix': extract 'file' (the name of the file being fixed) and generate the ENTIRE completely patched source code file, returning it inside the 'patched_code' field. You MUST return the FULL completed source code. DO NOT use comments like '// ... rest of code' or placeholders. If you do, the workspace compilation will fail.
-    
-    INSTRUCTIONS:
-    1. Generate a flat JSON object containing only the key-value pairs of extracted/generated parameters matching the Input Schema (specifically generate the 'patched_code' field for code fixes).
-    2. Do NOT add any extra conversational text. Output ONLY valid JSON.
-    """
-    
-    user_prompt = f"""
-    USER CONTEXT TO EXTRACT FROM:
-    - File Name: {state.user_context.get('filename', '')}
-    - Source Code: {state.user_context.get('code', '')}
-    - Stacktrace/Error: {state.user_context.get('stacktrace', '')}
-    - User Message: {state.user_context.get('message', '')}
-    """
-    
-    start_time = time.time()
-    
-    # Thử bóc tách chỉ sử dụng Schema
-    arg_response = None
-    args = {}
+    # 3. Execute physical action -> ExecutionResult
+    execution_result = None
     try:
-        arg_response = await model_client.call(system_prompt, user_prompt)
-        args = json.loads(arg_response)
-    except Exception as e:
-        print(f"⚠️ [EXECUTE NODE] Schema-only extraction failed: {e}. Fallback to full instructions.")
-        # Phục hồi lỗi: Tải instructions đầy đủ (TASK_5A Fallback)
-        raw_instructions = skill_info.get("raw_content") or skill_info.get("description") or ""
-        system_prompt_fallback = system_prompt + f"\n\nFULL SKILL INSTRUCTIONS:\n{raw_instructions}"
-        try:
-            arg_response = await model_client.call(system_prompt_fallback, user_prompt)
-            args = json.loads(arg_response)
-        except Exception as ex:
-            print(f"❌ [EXECUTE NODE] Fallback extraction failed: {ex}")
-            args = {}
-            
-    latency_ms = int((time.time() - start_time) * 1000)
-    
-    # Sync và log tokens/latency 
-    usage = getattr(model_client, "last_call_usage", None) or {
-        "prompt_tokens": 0,
-        "completion_tokens": 0,
-        "total_tokens": 0,
-        "model": "gpt-4o-mini",
-        "cost": 0.0
-    }
-    
-    history_entry = {
-        "node": "execute_node",
-        "prompt_tokens": usage.get("prompt_tokens", 0),
-        "completion_tokens": usage.get("completion_tokens", 0),
-        "total_tokens": usage.get("total_tokens", 0),
-        "latency_ms": latency_ms,
-        "model": usage.get("model", "gpt-4o-mini")
-    }
-    state.execution_history.append(history_entry)
-    
-    # Cộng dồn vào state
-    state.prompt_tokens += usage.get("prompt_tokens", 0)
-    state.completion_tokens += usage.get("completion_tokens", 0)
-    state.total_tokens += usage.get("total_tokens", 0)
-    state.total_cost += usage.get("cost", 0.0)
-    
-    try:
-        state.last_thought = f"Extracted arguments for {skill_name}: {args}"
-        print(f"💡 [AGENT THOUGHT] -> Tham số bóc tách thành công cho '{skill_name}': {args}")
-        
-        print(f"🤖 [SYSTEM ACTION] -> Bắn lệnh thực thi kỹ năng '{skill_name}' qua Client...")
-        
-        execution_result = await skill_client.execute_skill(skill_name, args)
-        
-        state.last_observation = json.dumps(execution_result, ensure_ascii=False)
+        execution_result = await ExecutionRuntime.execute(skill_client, request)
+        state.last_observation = json.dumps(execution_result.to_dict(), ensure_ascii=False)
         print(f"📦 [OBSERVATION] -> Kết quả thô từ hệ thống: {state.last_observation}")
-        
     except Exception as e:
-        state.last_observation = json.dumps({"status": "FAILED", "stdout": "", "stderr": str(e), "message": "Gãy định dạng JSON"}, ensure_ascii=False)
+        execution_result = ExecutionResult(
+            status="FAILED",
+            stdout="",
+            stderr=str(e),
+            message="Gãy định dạng JSON"
+        )
+        state.last_observation = json.dumps(execution_result.to_dict(), ensure_ascii=False)
         print(f"❌ [SYSTEM ERROR] -> Quá trình thực thi kỹ năng bị gián đoạn: {str(e)}")
         
-    state.history.append({
-        "step": state.current_step_idx,
-        "task": state.current_task,
-        "skill": skill_name,
-        "observation": state.last_observation
-    })
+    # 4. Environment Validation -> ValidationReport
+    validation_report = None
+    if execution_result.status == "SUCCESS":
+        validation_report = await validation_runtime.validate(
+            skill_name=skill_name,
+            args=request.args,
+            workspace_dir=skill_client.workspace_dir,
+            skill_client_class_name=skill_client.__class__.__name__,
+            model_client=model_client,
+            runtime_config=runtime_config
+        )
+        
+    if validation_report:
+        state.user_context["validation_feedback"] = validation_report.to_dict()
+        if validation_report.exit_code != 0:
+            # Ghi đè last_observation bằng thông tin lỗi biên dịch cụ thể
+            state.last_observation = json.dumps({
+                "status": "FAILED",
+                "stdout": validation_report.stdout,
+                "stderr": validation_report.stderr,
+                "message": f"Environment validation failed (exit code {validation_report.exit_code}): {validation_report.stderr}"
+            })
+            print(f"❌ [ENVIRONMENT VALIDATOR] Thất bại! Feedback lỗi: {validation_report.stderr.strip()}")
+        else:
+            state.last_observation = json.dumps({
+                "status": "SUCCESS",
+                "stdout": validation_report.stdout,
+                "message": "Environment validation passed."
+            })
+            print(f"✅ [ENVIRONMENT VALIDATOR] Thành công!")
+    else:
+        state.user_context.pop("validation_feedback", None)
+        
+    # 5. Log Telemetry
+    node_latency_ms = int((time.time() - node_start_time) * 1000)
+    TelemetryLogger.log(
+        state=state,
+        skill_name=skill_name,
+        usage=usage,
+        node_latency_ms=node_latency_ms,
+        llm_latency_ms=llm_latency_ms,
+        validation_report=validation_report
+    )
     
-    # Ghi log thực thi vào SQLite cho Task 4
-    try:
-        node_latency_ms = int((time.time() - node_start_time) * 1000)
-        task_id = state.user_context.get("task_id", "unknown_task")
-        task_type = state.user_context.get("task_type", "unknown_type")
-        baseline_mode = state.user_context.get("baseline_mode", "unknown_baseline")
-        
-        with get_session() as session:
-            log_entry = AgentExecutionLog(
-                task_id=task_id,
-                task_type=task_type,
-                skill_name=skill_name,
-                baseline_mode=baseline_mode,
-                success=False,  # Placeholder, sẽ được cập nhật sau khi đánh giá kết quả vật lý
-                quality=0.0,    # Placeholder, sẽ được cập nhật sau khi đánh giá chất lượng
-                latency_ms=node_latency_ms,
-                total_tokens=usage.get("total_tokens", 0),
-                cost=usage.get("cost", 0.0)
-            )
-            session.add(log_entry)
-            print(f"💾 [DB LOG] Đã lưu log chạy bước này vào SQLite: {skill_name} | Task: {task_id} | Latency: {node_latency_ms}ms")
-    except Exception as db_err:
-        print(f"⚠️ [DB LOG ERROR] Lỗi khi ghi log thực thi vào SQLite: {db_err}")
-        
     return state

@@ -21,11 +21,9 @@ load_dotenv(find_dotenv())
 
 api_key = os.getenv("OPENAI_API_KEY")
 if not api_key:
-    # Không crash ở mức import để tránh làm đổ vỡ uvicorn/fastapi import, chỉ cảnh báo
     print("[WARNING] OPENAI_API_KEY environment variable is not set.")
     api_key = "mock_key"
 
-# Định nghĩa bộ Router Edge điều phối rẽ nhánh & Tối ưu chi phí (AG2 CORE LOGIC)
 def route_decision(state: AgentState):
     if state.is_finished:
         print(f"\n🏁 [SYSTEM END] -> Vòng lặp khép kín kết thúc!")
@@ -34,7 +32,7 @@ def route_decision(state: AgentState):
         return END
         
     if state.step_count >= state.max_total_steps:
-        print(f"\n🚨 [CIRCUIT BREAKER] Cảnh báo lặp vô hạn! Ngắt luồng tại bước thứ {state.step_count} để bảo vệ tài khoản API Key")
+        print(f"\n🚨 [CIRCUIT BREAKER] Cảnh báo lặp vô hạn! Ngắt luồng tại bước thứ {state.step_count}")
         return END
 
     if state.current_step_idx < len(state.plan):
@@ -46,10 +44,10 @@ def route_decision(state: AgentState):
         return "select_skill_node"
         
     if not state.plan or state.current_step_idx >= len(state.plan):
-        print(f"🔄 [AG2 ROUTER] Kế hoạch trống hoặc cần Tái lập kế hoạch vĩ mô. Điều hướng quay về Node Planner.")
+        print(f"🔄 [AG2 ROUTER] Plan trống hoặc cần Replan. Điều hướng quay về Node Planner.")
         return "plan_node"
 
-    print(f"➡️ [AG2 ROUTER] Tác vụ hiện tại hoàn tất. Di chuyển tới bước tiếp theo trong kế hoạch.")
+    print(f"➡️ [AG2 ROUTER] Task hiện tại hoàn tất. Di chuyển tới bước tiếp theo trong plan.")
     return "select_skill_node"
 
     return END
@@ -75,25 +73,33 @@ def get_compiled_workflow(llm_client, skill_client):
     workflow.add_node("executor_node", ex_node)
     workflow.add_node("evaluate_node", ev_node)
 
-    # Thiết lập luồng kết nối tuần tự
+
     workflow.set_entry_point("plan_node")
     workflow.add_edge("plan_node", "select_skill_node")
     workflow.add_edge("select_skill_node", "executor_node")
     workflow.add_edge("executor_node", "evaluate_node")
     
-    # Thiết lập Cạnh điều kiện từ Node Evaluator (Router)
+
     workflow.add_conditional_edges("evaluate_node", route_decision)
 
     return workflow.compile()
 
-async def run_pipeline(code_content: str = None, filename: str = "LoginService.java", stacktrace: str = "NullPointerException at LoginService:42", message: str = "Sửa lỗi login"):
+async def run_pipeline(
+    code_content: str,              
+    filename: str,                  
+    stacktrace: str,                
+    message: str,      
+    workspace_path: str = None,    
+    baseline_mode: str = "B4",
+    skill_client = None
+):
     print("=========================================================")
     print("🚀 KÍCH HOẠT ĐỒ THỊ ĐIỀU PHỐI AG2 ──> KẾT NỐI AG1 🚀")
     print("=========================================================\n")
 
     print(f"api key:  {api_key}\n")
     
-    # 1. Gọi qua hàm trung gian nhận dữ liệu đệm get_cached_skills() từ tệp server.py để tối ưu hóa
+    #  Nhận dữ liệu đệm get_cached_skills() từ tệp server.py để tối ưu hóa
     try:
         from services.skill_testing.server import get_cached_skills
         tool_list = await get_cached_skills()
@@ -107,29 +113,19 @@ async def run_pipeline(code_content: str = None, filename: str = "LoginService.j
             {"name": "debug-java-null-pointer", "description": "Biên dịch javac kiểm tra lỗi cú pháp Java", "skill_id": "debug-java-null-pointer"}
         ]
 
-    #  Chỉ lập chỉ mục một lần duy nhất nếu chưa được dựng ma trận Vector để giảm latency
+    #  Chỉ build index một lần duy nhất nếu chưa lập ma trận Vector Embedding
     if semantic_registry._embeddings is None:
         semantic_registry.build_index(tool_list)
     else:
         print("⚡ [REGISTRY] Bỏ qua xây dựng index vector vì Registry đã được lập chỉ mục trước đó.")
 
-    skill_client = SkillExecutionClient()
+    if skill_client is None:
+        skill_client = SkillExecutionClient(workspace_path=workspace_path)
     llm_client = OpenAIClient(api_key=api_key)
     
     if code_content is None:
-        code_content = """class User {
-    private String name;
-    public User(String name) { this.name = name; }
-    public String getName() { return this.name; }
-}
-
-public class LoginService {
-    public void login(User user) {
-        if (user != null) {
-            String name = user.getName();
-        }
-    }
-}"""
+        code_content = """ """
+        
     skill_client.setup_initial_workspace(code_content, filename)
     
     initial_state = {
@@ -137,14 +133,14 @@ public class LoginService {
             "code": code_content,
             "filename": filename,
             "stacktrace": stacktrace,
-            "message": message
+            "message": message,
+            "baseline_mode": baseline_mode
         },
         "plan": [],
         "current_step_idx": 0,
         "step_count": 0,
         "history": []
     }
-    
     
     app = get_compiled_workflow(llm_client, skill_client)
     try:
@@ -157,5 +153,3 @@ public class LoginService {
     final_output = await app.ainvoke(initial_state)
     print("\n🏁 [SYSTEM END] Luồng chạy tích hợp thực tế hoàn thành rực rỡ!")
     return final_output
-if __name__ == "__main__":
-    asyncio.run(run_pipeline())
