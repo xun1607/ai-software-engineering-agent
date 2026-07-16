@@ -75,9 +75,9 @@ class OrchestratePayload(BaseModel):
 @app.post("/api/orchestrate/stream")
 async def orchestrate_stream(payload: OrchestratePayload, request: Request):
     print(f"🚀 [ORCHESTRATE] Tiếp nhận yêu cầu chạy pipeline cho file: {payload.filename}")
- 
+
     tools_data = await get_cached_skills()
-  
+
     if semantic_registry._embeddings is None:
         semantic_registry.build_index(tools_data)
     else:

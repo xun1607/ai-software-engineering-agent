@@ -6,6 +6,20 @@ from services.skill_testing.state import AgentState
 from shared.db import get_session
 from services.skill_testing.models import AgentExecutionLog
 
+def _is_missing_dependency_error(stderr: str) -> bool:
+    """
+    Phân loại lỗi compiler: trả về True nếu lỗi do thiếu class/file phụ trợ
+    (cần self-healing bằng cách tạo stub), False nếu là lỗi cú pháp thuần túy.
+    """
+    MISSING_DEP_PATTERNS = [
+        "cannot find symbol",
+        "package does not exist",
+        "class not found",
+        "ModuleNotFoundError",
+        "ImportError",
+    ]
+    return any(p.lower() in stderr.lower() for p in MISSING_DEP_PATTERNS)
+
 def extract_normalized_error(observation_str: str) -> str:
     """Classifies raw errors from execution logs into standardized categories."""
     if not observation_str:
@@ -231,17 +245,23 @@ async def evaluate_node(state: AgentState, model_client, skill_client=None) -> A
     
     # Kiểm tra nếu bước này có chạy Environment Validator
     if validation_feedback is not None:
-        is_success = (validation_feedback["exit_code"] == 0)
-        analysis = "Environment Validator: Passed." if is_success else f"Environment Validator Failed. Error:\n{validation_feedback['stderr']}"
-        print(f"🛡️ [EVALUATOR] Sử dụng kết quả khách quan từ Environment Validator. Success: {is_success}")
+        exit_code = validation_feedback["exit_code"]
+        is_success = (exit_code == 0)
+        compiler_stderr = validation_feedback.get("stderr", "")
+        analysis = (
+            "Environment Validator: Passed."
+            if is_success
+            else f"Compiler failed (exit_code={exit_code}):\n{compiler_stderr}"
+        )
+        print(f"🛡️ [EVALUATOR] Sử dụng kết quả khách quan từ Environment Validator. exit_code={exit_code}. Success: {is_success}")
         
-        # Nếu thất bại, gọi LLM để phân tích khả năng tự phục hồi (Self-Healing) chèn stub file
-        if not is_success:
-            print("🛡️ [EVALUATOR] Validator thất bại. Gọi LLM để phân tích khả năng tự phục hồi (Self-Healing)...")
+        # Chỉ gọi LLM khi lỗi là "thiếu class/file" — cần tạo stub để tự phục hồi
+        if not is_success and _is_missing_dependency_error(compiler_stderr):
+            print("🛡️ [EVALUATOR] Phát hiện lỗi thiếu dependency. Gọi LLM để tạo stub file...")
             evaluation, latency_ms = await call_llm_evaluator(model_client, state, current_task)
             need_dynamic_intervention = evaluation.get("need_dynamic_intervention", False)
             intervention = evaluation.get("intervention", {})
-            analysis += f"\nLLM Analysis: {evaluation.get('analysis', '')}"
+            analysis += f"\nSelf-healing analysis: {evaluation.get('analysis', '')}"
     else:
         # Nếu không có validator (các skill đọc file, parse stacktrace), kiểm tra trạng thái Executor
         try:

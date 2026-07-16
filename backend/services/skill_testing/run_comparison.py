@@ -181,7 +181,7 @@ async def run_benchmark(modes: List[str] = ["B2", "B4"]):  #"B1", "B2", "B3",
         testcases = json.load(f)
         
     # Cap to 30 testcases as requested by the user
-    testcases = testcases[:3]
+    testcases = testcases[:4]
     
     print(f"🔍 [BENCHMARK] Nạp thành công {len(testcases)} testcases từ testcases.json!")
     print(f"⚙️ [BENCHMARK] Chạy đối chứng trên các chế độ: {modes}")

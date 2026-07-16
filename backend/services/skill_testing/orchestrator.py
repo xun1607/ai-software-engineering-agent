@@ -91,7 +91,9 @@ async def run_pipeline(
     message: str,      
     workspace_path: str = None,    
     baseline_mode: str = "B4",
-    skill_client = None
+    skill_client = None,
+    task_id: str = "manual_run",
+    task_type: str = "bug_fixing"
 ):
     print("=========================================================")
     print("🚀 KÍCH HOẠT ĐỒ THỊ ĐIỀU PHỐI AG2 ──> KẾT NỐI AG1 🚀")
@@ -134,7 +136,9 @@ async def run_pipeline(
             "filename": filename,
             "stacktrace": stacktrace,
             "message": message,
-            "baseline_mode": baseline_mode
+            "baseline_mode": baseline_mode,
+            "task_id": task_id,
+            "task_type": task_type
         },
         "plan": [],
         "current_step_idx": 0,

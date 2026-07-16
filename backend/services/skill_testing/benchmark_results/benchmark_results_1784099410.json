@@ -1,0 +1,82 @@
+[
+  {
+    "testcase_id": "TC_001",
+    "mode": "B2",
+    "success": true,
+    "latency_ms": 7062,
+    "total_tokens": 2066,
+    "total_cost": 0.00025995,
+    "step_count": 4,
+    "message": "Validator compile thành công."
+  },
+  {
+    "testcase_id": "TC_001",
+    "mode": "B4",
+    "success": true,
+    "latency_ms": 4341,
+    "total_tokens": 2066,
+    "total_cost": 0.00025995,
+    "step_count": 4,
+    "message": "Validator compile thành công."
+  },
+  {
+    "testcase_id": "TC_002",
+    "mode": "B2",
+    "success": true,
+    "latency_ms": 6474,
+    "total_tokens": 2510,
+    "total_cost": 0.00050745,
+    "step_count": 4,
+    "message": "Validator compile thành công."
+  },
+  {
+    "testcase_id": "TC_002",
+    "mode": "B4",
+    "success": true,
+    "latency_ms": 5741,
+    "total_tokens": 2510,
+    "total_cost": 0.00050745,
+    "step_count": 4,
+    "message": "Validator compile thành công."
+  },
+  {
+    "testcase_id": "TC_003",
+    "mode": "B2",
+    "success": false,
+    "latency_ms": 20514,
+    "total_tokens": 7398,
+    "total_cost": 0.0016575000000000003,
+    "step_count": 12,
+    "message": "Validator compile thất bại:\nSyntax error: missing semicolon on line 4"
+  },
+  {
+    "testcase_id": "TC_003",
+    "mode": "B4",
+    "success": false,
+    "latency_ms": 19176,
+    "total_tokens": 7398,
+    "total_cost": 0.0016575000000000003,
+    "step_count": 12,
+    "message": "Validator compile thất bại:\nSyntax error: missing semicolon on line 4"
+  },
+  {
+    "testcase_id": "TC_004",
+    "mode": "B2",
+    "success": false,
+    "latency_ms": 24261,
+    "total_tokens": 7626,
+    "total_cost": 0.0017381999999999999,
+    "step_count": 12,
+    "message": "Validator compile thất bại:\nCannot resolve method 'getEmail' in 'Customer'"
+  },
+  {
+    "testcase_id": "TC_004",
+    "mode": "B4",
+    "success": false,
+    "latency_ms": 17949,
+    "total_tokens": 7582,
+    "total_cost": 0.0017477999999999999,
+    "step_count": 12,
+    "message": "Validator compile thất bại:\nCannot resolve method 'getEmail()' in 'Customer'"
+  }
+]
