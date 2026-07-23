@@ -1,6 +1,0 @@
-diff --git a/src/main/java/org/springframework/samples/petclinic/owner/Pet.java b/src/main/java/org/springframework/samples/petclinic/owner/Pet.java
---- a/src/main/java/org/springframework/samples/petclinic/owner/Pet.java
-+++ b/src/main/java/org/springframework/samples/petclinic/owner/Pet.java
-@@ -50,1 +50,1 @@
--	private LocalDate birthDate
-+	private LocalDate birthDate;

@@ -1,6 +1,0 @@
-diff --git a/src/main/java/org/springframework/samples/petclinic/owner/PetTypeFormatter.java b/src/main/java/org/springframework/samples/petclinic/owner/PetTypeFormatter.java
---- a/src/main/java/org/springframework/samples/petclinic/owner/PetTypeFormatter.java
-+++ b/src/main/java/org/springframework/samples/petclinic/owner/PetTypeFormatter.java
-@@ -21,1 +21,1 @@
--// Deleted import java.text.ParseException;
-+import java.text.ParseException;

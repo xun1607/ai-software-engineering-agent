@@ -4,10 +4,10 @@ from typing import Dict, Any, List, Type
 from swe_agent.skills.base import AgentSkill
 from swe_agent.tools.base import BaseAgentTool
 
-class MarkdownSkill(AgentSkill):
+class DynamicMarkdownSkill(AgentSkill):
     """
-    A generic skill that dynamically loads its schema and instructions 
-    directly from a SKILL.md file and executes it using injected LLM and Tools.
+    A generic skill that dynamically loads schema and instructions 
+    directly from a SKILL.md file and executes it using an LLM (ReasoningAgent) and Tools.
     """
     def __init__(self, filepath: str, brain, tools: List[BaseAgentTool]):
         self.filepath = filepath
@@ -66,10 +66,24 @@ class MarkdownSkill(AgentSkill):
         Dynamically execute the skill instructions inside the sandbox.
         """
         if not self.brain:
-            raise ValueError("Error: Brain dependency must be provided to execute MarkdownSkill.")
+            raise ValueError("Error: Brain dependency must be provided to execute DynamicMarkdownSkill.")
 
-        # Bind the injected tools using the BaseAgentTool abstraction
-        llm = self.brain.get_model().bind_tools(self.tools)
+        # Properly format BaseAgentTool schemas to bind to the LLM
+        formatted_tools = []
+        for t in self.tools:
+            if hasattr(t, "name") and hasattr(t, "description") and hasattr(t, "args_schema"):
+                formatted_tools.append({
+                    "type": "function",
+                    "function": {
+                        "name": t.name,
+                        "description": t.description,
+                        "parameters": t.args_schema.model_json_schema()
+                    }
+                })
+            else:
+                formatted_tools.append(t)
+
+        llm = self.brain.get_model().bind_tools(formatted_tools)
         
         prompt = f"""
         You are executing the Agent Skill: {self.name}
@@ -114,3 +128,9 @@ class MarkdownSkill(AgentSkill):
             return json.loads(final_text)
         except Exception:
             return {"result": final_text}
+
+class MarkdownSkill(DynamicMarkdownSkill):
+    """
+    Legacy wrapper for MarkdownSkill to support backward compatibility in existing tests.
+    """
+    pass

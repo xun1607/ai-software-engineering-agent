@@ -83,14 +83,11 @@ Mục tiêu chặng này là hoàn thiện tầng đánh giá (Evaluation Protoc
               return None
           return x[0]
     ```
-*   [x] Xác định rõ 7 cấu hình Baselines đối chứng (B0 đến B6):
-    *   *B0 (Random Selection):* Chọn ngẫu nhiên một skill.
-    *   *B1 (Single Best Solver - SBS):* Chọn skill tốt nhất trung bình trên tập train và dùng cho mọi task.
-    *   *B2 (Zero-shot Selection):* Chọn trực tiếp không qua benchmark, log, modeling hay tối ưu.
-    *   *B3 (Semantic Retrieval):* Chọn dựa trên độ tương đồng cosine của Vector Embeddings.
-    *   *B4 (Metadata Rule-Based):* Chọn dựa trên luật cứng (Task Type -> Skill).
-    *   *B5 (Cost-Blind Selection):* Chỉ tối ưu hóa Success/Quality mà không xét Cost hoặc Latency.
-    *   *B6 (Proposed Framework):* Benchmarking + Modeling + Optimization.
+*   [x] **Xác định rõ 4 cấu hình Baselines đối chứng (B1 đến B4):**
+    *   *B1 (Static Agent / Single Best Solver):* Chọn duy nhất một skill tổng quát tốt nhất trung bình và áp dụng cố định cho mọi tác vụ.
+    *   *B2 (Modern RAG Agent):* Kết hợp giữa Vector Search (lọc ra Top-K skill liên quan nhất) và mô hình LLM tự quyết định chọn 1 skill từ Top-K đó.
+    *   *B3 (Cost-Blind Agent):* Lựa chọn skill dựa hoàn toàn trên xác suất thành công từ lịch sử logs trong quá khứ, bất kể chi phí token hay độ trễ.
+    *   *B4 (Proposed Framework):* Bộ chọn lọc tối ưu hóa đa mục tiêu (Cân bằng giữa tỷ lệ thành công - chi phí token - độ trễ + Bỏ LLM khi Parameter Resolver tự trích xuất được).
 
 ### 🛠️ Thiết kế Skill Modeling Layer (Dự phóng hiệu năng)
 *   **Định hướng thiết kế:** Do số lượng dữ liệu benchmark ban đầu khá ít (Prototype-driven), việc áp dụng các mô hình Machine Learning phức tạp (XGBoost, Random Forest) sẽ dễ bị học vẹt (overfitting). Do đó, hệ thống sẽ ưu tiên sử dụng các mô hình thống kê và mô hình Bayesian để dự báo hiệu năng.

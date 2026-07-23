@@ -1,0 +1,3 @@
+Scenario,Total Skills Bound,Prompt Tokens,Completion Tokens,Total Tokens,Cost,Latency (ms),Success
+Baseline,38,2450,26,2476,0.003345,2305.3722381591797,1
+CASS-Enabled,3,345,51,396,0.0013725,1107.161045074463,1

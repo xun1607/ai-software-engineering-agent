@@ -1,6 +1,0 @@
-diff --git a/src/main/java/org/springframework/samples/petclinic/owner/Owner.java b/src/main/java/org/springframework/samples/petclinic/owner/Owner.java
---- a/src/main/java/org/springframework/samples/petclinic/owner/Owner.java
-+++ b/src/main/java/org/springframework/samples/petclinic/owner/Owner.java
-@@ -135,1 +135,1 @@
--	public Pet getPetLegacy(String name, boolean ignoreNew) {
-+	public Pet getPet(String name, boolean ignoreNew) {

@@ -42,10 +42,29 @@ class CASS:
         # Step 1: Coarse Filtering (OS, RAM, Blacklist, Semantic)
         candidates = self.filter_pipeline.execute(all_skills, context)
         
-        # Step 2: Fine Ranking (Thompson Sampling based on history)
+        final_skills = self.ranker.rank(candidates, top_k=top_k)
+        return final_skills
+
+    def get_optimized_skills_with_details(self, 
+                                          all_skills: List[Dict[str, Any]], 
+                                          session_id: str, 
+                                          subtask: str, 
+                                          top_k: int = 3) -> Dict[str, Any]:
+        """
+        Retrieves optimized skills along with detailed filtering and ranking diagnostics.
+        """
+        context = self.context_manager.get_full_context(session_id, subtask)
+        candidates = self.filter_pipeline.execute(all_skills, context)
+        dropped = [s for s in all_skills if s not in candidates]
         final_skills = self.ranker.rank(candidates, top_k=top_k)
         
-        return final_skills
+        return {
+            "context": context,
+            "all_skills": all_skills,
+            "candidates": candidates,
+            "dropped_skills": dropped,
+            "final_skills": final_skills
+        }
 
     def wrap_skill(self, skill_func: Callable, session_id: str) -> CASSSkillProxy:
         """

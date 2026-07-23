@@ -7,9 +7,9 @@ class SkillExecutor:
     Runs skills inside the sandbox runtime and captures execution telemetry.
     """
     def __init__(self, 
-                 registry: SkillRegistry, 
-                 sandbox: Any, 
-                 cass_bridge: Optional[Any] = None):
+                registry: SkillRegistry, 
+                sandbox: Any, 
+                cass_bridge: Optional[Any] = None):
         self.registry = registry
         self.sandbox = sandbox
         self.cass_bridge = cass_bridge
@@ -21,12 +21,10 @@ class SkillExecutor:
         skill_name = tool_call['name']
         args = tool_call['args']
         
-        # 1. Retrieve the skill from registry
         skill = self.registry.get_skill(skill_name)
         if not skill:
             return f"Error: Skill '{skill_name}' is not registered in the system."
 
-        # 2. Prepare the execution callable (wrap with CASS telemetry proxy if bridge is provided)
         execute_fn = skill.execute
         if self.cass_bridge:
             execute_fn = self.cass_bridge.wrap_skill_execution(
@@ -34,7 +32,6 @@ class SkillExecutor:
                 session_id=session_id
             )
 
-        # 3. Execute the skill in the sandbox runtime
         try:
             result = execute_fn(sandbox=self.sandbox, **args)
             return str(result)

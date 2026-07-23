@@ -21,7 +21,7 @@ class AgentSkill(ABC):
     }
 
     @abstractmethod
-    def execute(self, **kwargs) -> Any:
+    def execute(self,  sandbox: Any, **kwargs) -> Any:
         """
         Execute the skill with the given parameters inside the sandbox.
         """

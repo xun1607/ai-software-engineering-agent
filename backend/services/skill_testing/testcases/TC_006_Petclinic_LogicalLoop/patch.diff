@@ -1,8 +1,0 @@
-diff --git a/src/main/java/org/springframework/samples/petclinic/owner/Owner.java b/src/main/java/org/springframework/samples/petclinic/owner/Owner.java
---- a/src/main/java/org/springframework/samples/petclinic/owner/Owner.java
-+++ b/src/main/java/org/springframework/samples/petclinic/owner/Owner.java
-@@ -93,3 +93,3 @@
- 	public List<Pet> getPets() {
--		return this.getPets();
-+		return this.pets;
- 	}

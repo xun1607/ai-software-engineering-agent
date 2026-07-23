@@ -89,6 +89,74 @@ class SkillExecutionClient:
                 "message": f"❌ Lỗi timeout thực thi kỹ năng '{skill_name}'."
             }
         except ImportError as ie:
+            # Fallback: check if SKILL.md exists for dynamic execution
+            skill_folder = os.path.abspath(
+                os.path.join(os.path.dirname(__file__), "..", "skills", name_clean)
+            )
+            skill_md_path = os.path.join(skill_folder, "SKILL.md")
+            if os.path.exists(skill_md_path):
+                print(f"⚡ [RUNTIME] Phát hiện kỹ năng động. Khởi chạy '{skill_name}' bằng DynamicMarkdownSkill...")
+                try:
+                    from swe_agent.skills.markdown_skill import DynamicMarkdownSkill
+                    from swe_agent.tools import (
+                        ReadFileTool, WriteFileTool, EditFileTool, ListFilesTool,
+                        FindFileTool, SearchCodeTool, TerminalShellTool, RunTestsTool,
+                        CompileProjectTool, GitDiffTool
+                    )
+                    from swe_agent.core.brain import OpenAIBrain
+                    from swe_agent.core.sandbox import LocalSandbox
+                    from services.skill_testing.core.execution_models import SkillResult
+                    
+                    brain = OpenAIBrain(api_key=os.environ.get("OPENAI_API_KEY", "mock_key"))
+                    tools = [
+                        ReadFileTool(), WriteFileTool(), EditFileTool(), ListFilesTool(),
+                        FindFileTool(), SearchCodeTool(), TerminalShellTool(), RunTestsTool(),
+                        CompileProjectTool(), GitDiffTool()
+                    ]
+                    
+                    dynamic_skill = DynamicMarkdownSkill(skill_md_path, brain, tools)
+                    sandbox = LocalSandbox(self.workspace_dir)
+                    
+                    # Execute dynamically
+                    result = dynamic_skill.execute(sandbox, **args)
+                    
+                    status = "SUCCESS"
+                    stdout_str = ""
+                    stderr_str = ""
+                    msg_str = f"[DYNAMIC SKILL] Executed {skill_name} successfully."
+                    
+                    if isinstance(result, dict):
+                        if "error" in result:
+                            status = "FAILED"
+                            stderr_str = str(result["error"])
+                            msg_str = f"Execution error: {stderr_str}"
+                        elif result.get("status") == "FAILED":
+                            status = "FAILED"
+                            stderr_str = str(result.get("stderr", ""))
+                            msg_str = str(result.get("message", "Execution failed."))
+                        else:
+                            stdout_str = str(result.get("stdout", result.get("result", result)))
+                            msg_str = str(result.get("message", msg_str))
+                    else:
+                        stdout_str = str(result)
+                    
+                    latency_ms = int((time.time() - start_time) * 1000)
+                    print(f"✅ [RUNTIME] Kỹ năng động '{skill_name}' thực thi HOÀN TẤT ({latency_ms}ms) | Trạng thái: {status}")
+                    return {
+                        "status": status,
+                        "stdout": stdout_str,
+                        "stderr": stderr_str,
+                        "message": msg_str
+                    }
+                except Exception as dyn_err:
+                    print(f"❌ [RUNTIME] Lỗi thực thi kỹ năng động '{skill_name}': {dyn_err}")
+                    return {
+                        "status": "FAILED",
+                        "stdout": "",
+                        "stderr": str(dyn_err),
+                        "message": f"❌ Lỗi thực thi kỹ năng động: {str(dyn_err)}"
+                    }
+            
             latency_ms = int((time.time() - start_time) * 1000)
             print(f"❌ [RUNTIME] Lỗi import động kỹ năng '{skill_name}': {ie}")
             return {

@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, create_model
 
 from ..models.skill import Skill
-from ..core.executor import SkillExecutor
+from ..execution.executor import SkillExecutor
 from .base import ISkillAdapter
 
 try:
