@@ -1,72 +1,48 @@
-# =========================
-# Python
-# =========================
+# Python bytecode and cache
 __pycache__/
 *.py[cod]
-*.pyo
+*$py.class
+*.so
 
-# Virtual environments
+# Virtual Environments
 venv/
 .venv/
-backend/venv/
+env/
+ENV/
+env.bak/
+venv.bak/
 
-# Environment variables
+# Node.js dependencies
+node_modules/
+frontend/node_modules/
+*.log
+npm-debug.log*
+
+# Temporary Workspaces & Sandbox runtime directories
+workspace_*
+workspace_streamlit_*
+./workspace_*
+
+# Large Zip archives
+*.zip
+backend/services/*.zip
+
+# Environment & API Keys (DO NOT COMMIT PERSONAL KEYS)
 .env
-.env.*
+.env.local
+.env.*.local
 
-# Database
-*.db
-*.sqlite
+# IDE & Editor Settings
+.idea/
+.vscode/
+*.swp
+*.swo
 
-# Pytest
-.pytest_cache/
-
-# Type checker / linter
-.mypy_cache/
-.ruff_cache/
-
-# Jupyter
-.ipynb_checkpoints/
-
-# OS / Editor
+# OS files
 .DS_Store
 Thumbs.db
-.vscode/
-
-# =========================
-# Node.js
-# =========================
-node_modules/
-**/node_modules/
-frontend/node_modules/
-
-# Build outputs
-dist/
-build/
+Desktop.ini
 
 # Logs
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# =========================
-# AI / ML
-# =========================
-*.pt
-*.bin
-*.onnx
-models/
-cache/
-.huggingface/
-
-
-# Chặn các file tạm thời của SQLite dữ liệu phân tầng
-*.db-shm
-*.db-wal
-*.db
-
-# Chặn sản phẩm biên dịch vật lý của Java Runtime (TASK 4 hiện trường)
-backend/workspace/src/main/java/*.class
-backend/workspace/src/main/java/LoginService
-backend/services/skill_testing/benchmark_repos/
-backend/services/skill_testing/workspace_temp/
+*.log
+cass_selection.log

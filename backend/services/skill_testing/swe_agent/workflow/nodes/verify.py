@@ -15,7 +15,12 @@ class VerifyNode:
         
         filename = state.get("current_file")
         
+        iter_count = state.get("iteration_count", 0)
+        
         if not test_command and not filename:
+            if iter_count < 3:
+                print(f"[Node: Verify] No file edited yet (Iteration {iter_count}). Requesting code fix...")
+                return {"is_valid": False, "feedback": "Context inspected. Please call edit_file or python_syntax_fixer to apply the bug fix."}
             return {"is_valid": True}
 
         # --- BƯỚC 1: KIỂM TRA CÚ PHÁP (Nếu là file Python) ---
@@ -32,9 +37,26 @@ class VerifyNode:
         print(f"--- Running Test Command: {final_cmd} ---")
         run_res = self.evaluator.run_custom_test(final_cmd)
         
+        combined_output = f"{run_res.stdout}\n{run_res.stderr}"
+        is_failed = False
+        
         if run_res.exit_code != 0:
-            # Trả về cả stdout và stderr để Agent có đủ thông tin sửa lỗi
-            error_feedback = f"Test Failed!\nSTDOUT: {run_res.stdout}\nSTDERR: {run_res.stderr}"
-            return {"is_valid": False, "feedback": error_feedback}
+            is_failed = True
+        elif "FAILED (" in combined_output or "FAIL:" in combined_output or "ERRORS:" in combined_output:
+            is_failed = True
+        elif "'failed': " in combined_output and "'failed': 0" not in combined_output:
+            is_failed = True
+        elif "Traceback (most recent call last):" in combined_output or "SyntaxError:" in combined_output or "BeanCreationException" in combined_output:
+            is_failed = True
             
-        return {"is_valid": True, "feedback": "All tests passed!"}
+        verify_log = {
+            "tool": "verify_test_runner",
+            "args": {"command": final_cmd},
+            "output": f"Exit Code: {run_res.exit_code}\nSTDOUT:\n{run_res.stdout}\nSTDERR:\n{run_res.stderr}"[:3000]
+        }
+        
+        if is_failed:
+            error_feedback = f"Test Failed!\nSTDOUT: {run_res.stdout}\nSTDERR: {run_res.stderr}"
+            return {"is_valid": False, "feedback": error_feedback, "execution_logs": [verify_log]}
+            
+        return {"is_valid": True, "feedback": "All tests passed!", "execution_logs": [verify_log]}

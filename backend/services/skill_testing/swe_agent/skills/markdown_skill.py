@@ -16,48 +16,88 @@ class DynamicMarkdownSkill(AgentSkill):
         self._load_from_md()
 
     def _load_from_md(self):
+        import os
         with open(self.filepath, "r", encoding="utf-8") as f:
             content = f.read()
             
         parts = content.split("---")
-        if len(parts) < 3:
-            raise ValueError(f"Invalid SKILL.md format in {self.filepath}")
+        if len(parts) >= 3:
+            raw_yaml = parts[1].strip()
+            instructions_text = "---".join(parts[2:]).strip()
+        elif len(parts) == 2:
+            raw_yaml = parts[0].strip()
+            instructions_text = parts[1].strip()
+        else:
+            raw_yaml = ""
+            instructions_text = content.strip()
             
-        metadata = yaml.safe_load(parts[1])
-        self.name = metadata.get("name")
-        self.description = metadata.get("description", "")
-        self.version = metadata.get("version", "1.0.0")
-        self.category = metadata.get("category", "universal/generic")
-        self.level = metadata.get("level", "atomic")
-        self.tags = metadata.get("tags", [])
-        self.constraints = metadata.get("constraints", {})
-        self.instructions = parts[2].strip()
+        metadata = {}
+        if raw_yaml:
+            try:
+                parsed = yaml.safe_load(raw_yaml)
+                if isinstance(parsed, dict):
+                    metadata = parsed
+            except Exception:
+                # Fallback line-by-line key-value parser if PyYAML encounters non-standard syntax
+                metadata = {}
+                for line in raw_yaml.splitlines():
+                    line_s = line.strip()
+                    if ":" in line_s and not line_s.startswith("#"):
+                        k, v = line_s.split(":", 1)
+                        k_clean = k.strip().strip("'\"").strip(",")
+                        v_clean = v.strip().strip("'\"")
+                        if k_clean and k_clean not in metadata:
+                            metadata[k_clean] = v_clean
+                            
+        if not isinstance(metadata, dict):
+            metadata = {}
+            
+        default_name = os.path.basename(os.path.dirname(self.filepath)).replace("_", "-")
+        self.name = metadata.get("name") or default_name
+        self.name = str(self.name).replace(" ", "-").replace("/", "-")
+        self.description = str(metadata.get("description") or f"Dynamic skill loaded from {self.name}.")
+        self.version = str(metadata.get("version", "1.0.0"))
+        self.category = str(metadata.get("category", "universal/generic"))
+        self.level = str(metadata.get("level", "atomic"))
+        
+        tags = metadata.get("tags", [])
+        if isinstance(tags, str):
+            tags = [t.strip() for t in tags.split(",") if t.strip()]
+        self.tags = tags if isinstance(tags, list) else []
+        
+        constraints = metadata.get("constraints", {})
+        self.constraints = constraints if isinstance(constraints, dict) else {}
+        self.instructions = instructions_text
         
         # Dynamically build args_schema using Pydantic's create_model
         input_spec = metadata.get("input", {})
-        properties = input_spec.get("properties", {})
-        required = input_spec.get("required", [])
+        properties = input_spec.get("properties", {}) if isinstance(input_spec, dict) else {}
+        required = input_spec.get("required", []) if isinstance(input_spec, dict) else []
         
         fields = {}
-        for prop_name, prop_val in properties.items():
-            prop_type = str
-            t_str = prop_val.get("type", "string")
-            if t_str == "integer":
-                prop_type = int
-            elif t_str == "boolean":
-                prop_type = bool
-            elif t_str == "array":
-                prop_type = list
-                
-            desc = prop_val.get("description", "")
-            if prop_name in required:
-                fields[prop_name] = (prop_type, Field(description=desc))
-            else:
-                fields[prop_name] = (prop_type, Field(default=None, description=desc))
-                
+        if isinstance(properties, dict):
+            for prop_name, prop_val in properties.items():
+                if not isinstance(prop_val, dict):
+                    continue
+                prop_type = str
+                t_str = prop_val.get("type", "string")
+                if t_str == "integer":
+                    prop_type = int
+                elif t_str == "boolean":
+                    prop_type = bool
+                elif t_str == "array":
+                    prop_type = list
+                    
+                desc = prop_val.get("description", "")
+                if prop_name in required:
+                    fields[prop_name] = (prop_type, Field(description=desc))
+                else:
+                    fields[prop_name] = (prop_type, Field(default=None, description=desc))
+                    
         # Generate Pydantic class dynamically at runtime
+        clean_model_name = "".join([c if c.isalnum() else "_" for c in self.name])
         self.args_schema = create_model(
-            f"{self.name.replace('-', '_')}_args",
+            f"{clean_model_name}_args",
             **fields
         )
 

@@ -13,14 +13,15 @@ class ReasoningNode:
     def __call__(self, state):
         iteration = state.get("iteration_count", 0)
         session_id = state.get("session_id", "default_session")
-        last_query = state['messages'][-1].content
-
-        print(f"\n[Node: Reasoning] Iteration: {iteration}")
+        # Extract initial task prompt for context-aware CASS skill retrieval
+        task_prompt = state['messages'][0].content
+        if isinstance(task_prompt, list):
+            task_prompt = str(task_prompt)
 
         # --- CASS SKILL SELECTION ---
         if self.cass_bridge:
             selected_skills = self.cass_bridge.get_optimized_skills(
-                self.skills, session_id, last_query
+                self.skills, session_id, task_prompt
             )
         else:
             selected_skills = self.skills

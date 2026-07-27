@@ -8,7 +8,6 @@ class RuntimeEvaluator:
 
     def run_pytest(self, test_file: str = "tests/") -> SandboxResponse:
         """Chạy pytest và trả về kết quả cấu trúc."""
-        # Chúng ta giả định pytest đã được cài đặt trong môi trường
         return self.sandbox.execute_command(f"python -m pytest {test_file}")
 
     def run_custom_test(self, command: str) -> SandboxResponse:

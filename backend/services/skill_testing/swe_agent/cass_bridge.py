@@ -16,7 +16,7 @@ class CASSBridge:
         """
         skill_map = {s.name: s for s in skills}
         
-        # 1. Convert skills to CASS profiles
+        # Convert skills to CASS profiles
         profiles = []
         for s in skills:
             profile = UnifiedSkillAdapter.python_to_cass_profile(

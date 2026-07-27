@@ -24,16 +24,34 @@ class ActionNode:
         outputs = []
         current_file = None
         
+        logs_to_append = []
         for tool_call in last_message.tool_calls:
-            # Execute the skill inside the sandbox
             result = self.executor.run(tool_call, session_id)
-            outputs.append(ToolMessage(tool_call_id=tool_call['id'], content=str(result)))
+            res_str = str(result)
             
-            # Extract target filename for the validation node (e.g. write_file)
-            if tool_call.get('name') == 'write_file' and 'filename' in tool_call.get('args', {}):
-                current_file = tool_call['args']['filename']
+            # Log execution details for virtual terminal
+            tool_name = tool_call.get('name', 'unknown')
+            tool_args = tool_call.get('args', {})
+            logs_to_append.append({
+                "tool": tool_name,
+                "args": tool_args,
+                "output": res_str[:3000]  # Store clean output snippet for terminal display
+            })
+            
+            if len(res_str) > 2000:
+                res_str = res_str[:1000] + "\n\n... [OUTPUT TRUNCATED BY CASS AGENT TO PREVENT TOKEN BLOAT] ...\n\n" + res_str[-1000:]
+            outputs.append(ToolMessage(tool_call_id=tool_call['id'], content=res_str))
+            
+            # Extract target filename for the validation node
+            target_fn = tool_args.get('filename') or tool_args.get('filepath') or tool_args.get('path') or tool_args.get('file')
+            if target_fn:
+                current_file = target_fn
             
         res = {"messages": outputs}
         if current_file:
             res["current_file"] = current_file
+            
+        if logs_to_append:
+            res["execution_logs"] = logs_to_append
+            
         return res

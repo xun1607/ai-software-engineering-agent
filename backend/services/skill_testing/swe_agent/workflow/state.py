@@ -1,9 +1,10 @@
+import operator
 from typing import Annotated, List, Dict, Any, TypedDict, Optional
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
 
 class AgentState(TypedDict):
-    messages: Annotated[List[BaseMessage], add_messages]  #chat history
+    messages: Annotated[List[BaseMessage], add_messages]  # chat history
     iteration_count: int
     current_file: Optional[str]
     
@@ -11,3 +12,4 @@ class AgentState(TypedDict):
     feedback: Optional[str]
     
     telemetry: Dict[str, Any]
+    execution_logs: Annotated[List[Dict[str, Any]], operator.add]  # Accumulating real-time Sandbox execution logs

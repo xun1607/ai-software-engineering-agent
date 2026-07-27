@@ -26,14 +26,11 @@ class CASSRanker:
         for skill in candidates:
             m = metrics_map.get(skill["name"], {"alpha": 1, "beta": 1, "avg_latency_ms": 500, "avg_cost": 0.0})
             
-            # 1. Thompson Sampling for Success Rate
             # Sample from Beta(alpha, beta)
             success_sample = random.betavariate(m["alpha"], m["beta"])
 
-            # 2. Normalize Latency (Cap at 10 seconds for normalization)
             norm_latency = min(m["avg_latency_ms"] / 10000.0, 1.0)
 
-            # 3. Final Utility Score
             # Utility = Success_Sample - (Weight * Latency) - (Weight * Cost)
             utility_score = success_sample - (self.w_latency * norm_latency)
             

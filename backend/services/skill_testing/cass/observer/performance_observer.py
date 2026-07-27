@@ -12,10 +12,8 @@ class PerformanceObserver:
 
     def report_execution(self, record: ExecutionRecord) -> None:
         """Saves logs and updates aggregated reputation metrics."""
-        # 1. Persist the detailed execution log
         self.telemetry_store.save_log(record)
         
-        # 2. Update the Bayesian reputation scores (Alpha/Beta)
         self.metrics_store.update_metrics(
             skill_name=record.skill_name,
             latency_ms=record.latency_ms,
