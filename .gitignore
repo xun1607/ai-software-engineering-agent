@@ -1,0 +1,48 @@
+# Python bytecode and cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Node.js dependencies
+node_modules/
+frontend/node_modules/
+*.log
+npm-debug.log*
+
+# Temporary Workspaces & Sandbox runtime directories
+workspace_*
+workspace_streamlit_*
+./workspace_*
+
+# Large Zip archives
+*.zip
+backend/services/*.zip
+
+# Environment & API Keys (DO NOT COMMIT PERSONAL KEYS)
+.env
+.env.local
+.env.*.local
+
+# IDE & Editor Settings
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Logs
+*.log
+cass_selection.log

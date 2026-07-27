@@ -1,0 +1,99 @@
+services:
+  # ── PostgreSQL ─────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: skill
+      POSTGRES_PASSWORD: skill
+      POSTGRES_DB: skills
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U skill -d skills"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    ports:
+      - "5432:5432"
+
+  # ── Backend Services ───────────────────────────────────────────────────────
+  skill-management:
+    build: ./backend
+    command: uvicorn services.skill_management.main:app --host 0.0.0.0 --port 8001 --reload
+    environment:
+      SKILL_DB_URL: postgresql://skill:skill@postgres:5432/skills
+      SKILLS_DIR: /data/skills
+    volumes:
+      - ./backend/services/skill_management/skill_library/skills:/data/skills
+      - ./backend:/app
+    ports:
+      - "8001:8001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  skill-evaluation:
+    build: ./backend
+    command: uvicorn services.skill_evaluation.main:app --host 0.0.0.0 --port 8002 --reload
+    environment:
+      SKILL_DB_URL: postgresql://skill:skill@postgres:5432/skills
+      SKILLS_DIR: /data/skills
+    volumes:
+      - ./backend/services/skill_management/skill_library/skills:/data/skills
+      - ./backend:/app
+    ports:
+      - "8002:8002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # skill-testing:
+  #   build: 
+  #     context: ./backend
+  #     dockerfile: services/skill_testing/Dockerfile
+  #   command: uvicorn services.skill_testing.main:app --host 0.0.0.0 --port 8003 --reload
+  #   environment:
+  #     OPENAI_API_KEY: ${OPENAI_API_KEY}
+  #     SKILL_DB_URL: postgresql://skill:skill@postgres:5432/skills
+  #     SKILLS_DIR: /data/skills
+  #   volumes:
+  #     - ./backend/services/skill_management/skill_library/skills:/data/skills
+  #     - ./backend:/app
+  #   ports:
+  #     - "8003:8003"
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+
+  # ── Backend Services ───────────────────────────────────────────────────────
+  skill-reporting:
+    build: ./backend
+    command: uvicorn services.skill_reporting.main:app --host 0.0.0.0 --port 8004 --reload
+    environment:
+      SKILL_DB_URL: postgresql://skill:skill@postgres:5432/skills
+      SKILLS_DIR: /data/skills
+    volumes:
+      - ./backend/services/skill_management/skill_library/skills:/data/skills
+      - ./backend:/app
+    ports:
+      - "8004:8004"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ── Frontend ───────────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3002:80"
+    depends_on:
+      - skill-management
+      - skill-evaluation
+      - skill-testing
+      - skill-reporting
+
+volumes:
+  pg-data:
+  skills-data:

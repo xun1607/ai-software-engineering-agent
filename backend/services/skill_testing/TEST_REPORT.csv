@@ -1,0 +1,13 @@
+﻿ID,Tên Task,Input (Mô tả lỗi),Kết quả,Chỉ số CASS
+TC_01,Python Syntax Error Fix,Sửa lỗi cú pháp SyntaxError thiếu dấu 2 chấm ':' trong file calculator.py,PASS,"Giảm 91.6% Tokens (Tiết kiệm 2281 tokens), Latency: 851ms"
+TC_02,Python Missing Import Fix,Sửa lỗi NameError trong math_utils.py do gọi math.sqrt() mà chưa import thư viện math,PASS,"Giảm 94.6% Tokens (Tiết kiệm 4025 tokens), Latency: 599ms"
+TC_03,Java NullPointer Safety Check,Bổ sung kiểm tra null cho biến user trong UserService.java tránh NullPointerException,PASS,"Giảm 96.2% Tokens (Tiết kiệm 6782 tokens), Latency: 1525ms"
+TC_04,Flask API Repo Fix (ZeroDivision & KeyError),Sửa lỗi ZeroDivisionError và KeyError trong app.py khi xử lý JSON payload null,PASS,"Giảm 47.1% Tokens (Tiết kiệm 2256 tokens), Latency: 10264ms"
+TC_05,Spring PetClinic Java Syntax Fix,Sửa lỗi cú pháp biên dịch Java tại dòng 38 trong PetValidator.java,PASS,"Giảm 90.2% Tokens (Tiết kiệm 4721 tokens), Latency: 2801ms"
+TC_06,Data Processor KeyError Fix,Sửa lỗi KeyError khi trường 'id' bị thiếu trong dữ liệu JSON tại file data_parser.py,PASS,"Giảm 32.0% Tokens (Tiết kiệm 1472 tokens), Latency: 5441ms"
+TC_07,System Log Error Scanner (OS Conflict),Quét file server.log tìm chữ 'ERROR' (Xử lý xung đột lệnh OS Windows vs Linux),PASS,"Giảm 88.1% Tokens (Tiết kiệm 3697 tokens), Latency: 2488ms"
+TC_08,Git Conflict Markers Resolver,"Dọn dẹp các ký hiệu xung đột Git (<<<<<<<, =======, >>>>>>>) trong config.py",PASS,"Giảm 0.0% Tokens (Tiết kiệm 0 tokens), Latency: 8223ms"
+TC_09,Heavy Stack Trace Spring Context Fix,"Phân tích 50 dòng log Tomcat/Spring, định vị và sửa lỗi biên dịch trong PetValidator.java",PASS,"Giảm 36.4% Tokens (Tiết kiệm 2025 tokens), Latency: 7477ms"
+TC_10,SWE-bench Lite: Pallets Flask #4045,Sửa lỗi xử lý dấu chấm trong tên Blueprint của framework Flask (Real-World Repo),PASS,"Giảm 89.2% Tokens (Tiết kiệm 8121 tokens), Latency: 5039ms"
+TC_11,SWE-bench Lite: Requests #1963,Sửa lỗi bản sao Session làm sai lệch phương thức HTTP redirect trong Requests,PASS,"Giảm 40.6% Tokens (Tiết kiệm 3093 tokens), Latency: 9831ms"
+TC_12,SWE-bench Lite: Astropy #12907,Sửa lỗi tính toán ma trận tách biệt trong thư viện Astropy,PASS,"Giảm 54.8% Tokens (Tiết kiệm 4229 tokens), Latency: 8396ms"

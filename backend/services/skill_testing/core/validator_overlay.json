@@ -1,0 +1,14 @@
+{
+  "suggest-java-fix": {
+    "validator": "compile_java"
+  },
+  "debug-java-null-pointer": {
+    "validator": "compile_java"
+  },
+  "suggest-python-fix": {
+    "validator": "execute_python"
+  },
+  "debug-python-error": {
+    "validator": "execute_python"
+  }
+}
